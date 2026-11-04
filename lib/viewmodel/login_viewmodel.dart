@@ -37,6 +37,18 @@ class LoginViewModel extends ChangeNotifier {
     }
   }
 
+  void updateUserAvatar(String newAvatar) {
+    if (_user != null) {
+      _user = _user!.copyWith(avatar: newAvatar);
+      notifyListeners();
+    }
+  }
+
+  void updateUser(UserModel updatedUser) {
+    _user = updatedUser;
+    notifyListeners();
+  }
+
   void logout() {
     _user = null;
     notifyListeners();

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ziesocial/core/network.dart';
-import 'package:ziesocial/view/register_view.dart';
+import 'package:ziesocial/view/login_view.dart';
 import 'package:ziesocial/viewmodel/create_post_viewmodel.dart';
 import 'package:ziesocial/viewmodel/login_viewmodel.dart';
+import 'package:ziesocial/viewmodel/post_viewmodel.dart';
+import 'package:ziesocial/viewmodel/profile_viewmodel.dart';
 import 'package:ziesocial/viewmodel/register_viewmodel.dart';
+import 'package:ziesocial/viewmodel/search_viewmodel.dart';
 
 void main() {
   final apiClient = ApiClient();
@@ -14,7 +17,10 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => LoginViewModel(apiClient)),
         ChangeNotifierProvider(create: (_) => RegisterViewModel(apiClient)),
-        ChangeNotifierProvider(create: (_) => CreatePostViewModel(apiClient))
+        ChangeNotifierProvider(create: (_) => CreatePostViewModel(apiClient)),
+        ChangeNotifierProvider(create: (_) => PostViewModel(apiClient)),
+        ChangeNotifierProvider(create: (_) => ProfileViewModel(apiClient)),
+        ChangeNotifierProvider(create: (_) => SearchViewModel(apiClient)),
       ],
       child: const MyApp(),
     ),
@@ -24,15 +30,18 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'ZieSocial',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color.fromARGB(255, 54, 103, 159),
+        ),
+        useMaterial3: true,
       ),
-      home: RegisterView(),
+      home: const LoginView(),
     );
   }
 }
