@@ -112,12 +112,14 @@ class AuthorModel {
   final String username;
   final String name;
   final String avatar;
+  final bool hasStory;
 
   AuthorModel({
     required this.id,
     required this.username,
     required this.name,
     required this.avatar,
+    this.hasStory = false,
   });
 
   String get avatarUrl {
@@ -138,6 +140,9 @@ class AuthorModel {
       username: json['username']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       avatar: json['avatar']?.toString() ?? '',
+      hasStory: json['has_story'] == true ||
+          json['has_story'] == 1 ||
+          json['has_story'] == '1',
     );
   }
 
@@ -146,6 +151,7 @@ class AuthorModel {
         'username': username,
         'name': name,
         'avatar': avatar,
+        'has_story': hasStory,
       };
 }
 

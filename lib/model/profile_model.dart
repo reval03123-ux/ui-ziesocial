@@ -93,6 +93,7 @@ class SearchUserModel {
   final String bio;
   final int followersCount;
   final bool isFollowing;
+  final bool hasStory;
 
   SearchUserModel({
     required this.id,
@@ -102,6 +103,7 @@ class SearchUserModel {
     required this.bio,
     required this.followersCount,
     required this.isFollowing,
+    this.hasStory = false,
   });
 
   String get avatarUrl {
@@ -117,6 +119,7 @@ class SearchUserModel {
   SearchUserModel copyWith({
     bool? isFollowing,
     int? followersCount,
+    bool? hasStory,
   }) {
     return SearchUserModel(
       id: id,
@@ -126,6 +129,7 @@ class SearchUserModel {
       bio: bio,
       followersCount: followersCount ?? this.followersCount,
       isFollowing: isFollowing ?? this.isFollowing,
+      hasStory: hasStory ?? this.hasStory,
     );
   }
 
@@ -142,6 +146,9 @@ class SearchUserModel {
       isFollowing: json['is_following'] == true ||
           json['is_following'] == 1 ||
           json['is_following'] == '1',
+      hasStory: json['has_story'] == true ||
+          json['has_story'] == 1 ||
+          json['has_story'] == '1',
     );
   }
 }

@@ -5,9 +5,11 @@ import 'package:provider/provider.dart';
 import 'package:ziesocial/model/post_model.dart';
 import 'package:ziesocial/view/login_view.dart';
 import 'package:ziesocial/view/profile_view.dart';
+import 'package:ziesocial/view/story_player_view.dart';
 import 'package:ziesocial/viewmodel/login_viewmodel.dart';
 import 'package:ziesocial/viewmodel/post_viewmodel.dart';
 import 'package:ziesocial/viewmodel/profile_viewmodel.dart';
+import 'package:ziesocial/viewmodel/story_viewmodel.dart';
 import 'package:ziesocial/widget/comment_sheet.dart';
 
 class PostCard extends StatefulWidget {
@@ -161,11 +163,27 @@ class _PostCardState extends State<PostCard>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => ProfileView(userId: post.author.id)),
-            ),
+            onTap: () {
+              final storyVm = context.read<StoryViewModel>();
+              final userStory = storyVm.getUserStory(post.author.id);
+              if (userStory != null && userStory.stories.isNotEmpty) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StoryPlayerView(
+                      userStories: [userStory],
+                      initialUserIndex: 0,
+                    ),
+                  ),
+                );
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => ProfileView(userId: post.author.id)),
+                );
+              }
+            },
             child: _buildAuthorAvatar(post),
           ),
           const Gap(10),
@@ -212,28 +230,37 @@ class _PostCardState extends State<PostCard>
   }
 
   Widget _buildAuthorAvatar(PostModel post) {
+    final storyVm = context.watch<StoryViewModel>();
+    final hasActiveStory =
+        post.author.hasStory || storyVm.hasActiveStory(post.author.id);
+
     return Container(
       width: 38,
       height: 38,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(
-          colors: [
-            Color(0xFF833AB4),
-            Color(0xFFFD1D1D),
-            Color(0xFFFCB045),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
+        gradient: hasActiveStory
+            ? const LinearGradient(
+                colors: [
+                  Color(0xFF833AB4),
+                  Color(0xFFFD1D1D),
+                  Color(0xFFFCB045),
+                ],
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+              )
+            : null,
       ),
-      padding: const EdgeInsets.all(2),
+      padding: hasActiveStory ? const EdgeInsets.all(2) : EdgeInsets.zero,
       child: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colors.white,
           shape: BoxShape.circle,
+          border: hasActiveStory
+              ? null
+              : Border.all(color: Colors.grey.shade300, width: 0.8),
         ),
-        padding: const EdgeInsets.all(1.5),
+        padding: hasActiveStory ? const EdgeInsets.all(1.5) : EdgeInsets.zero,
         child: CircleAvatar(
           radius: 15,
           backgroundColor: const Color(0xFFE8EFF8),

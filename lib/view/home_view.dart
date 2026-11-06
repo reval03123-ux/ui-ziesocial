@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:provider/provider.dart';
+import 'package:ziesocial/model/story_model.dart';
+import 'package:ziesocial/view/chat_list_view.dart';
 import 'package:ziesocial/view/create_post_view.dart';
+import 'package:ziesocial/view/create_story_view.dart';
 import 'package:ziesocial/view/login_view.dart';
+import 'package:ziesocial/view/story_player_view.dart';
+import 'package:ziesocial/viewmodel/chat_viewmodel.dart';
 import 'package:ziesocial/viewmodel/login_viewmodel.dart';
 import 'package:ziesocial/viewmodel/post_viewmodel.dart';
+import 'package:ziesocial/viewmodel/story_viewmodel.dart';
 import 'package:ziesocial/widget/post_card.dart';
 
 class HomeView extends StatefulWidget {
@@ -43,7 +49,12 @@ class _HomeViewState extends State<HomeView> with TickerProviderStateMixin {
   Future<void> _refreshPosts() async {
     final user = context.read<LoginViewModel>().user;
     final userId = user != null ? int.tryParse(user.id) : null;
-    await context.read<PostViewModel>().fetchPosts(currentUserId: userId);
+    await Future.wait([
+      context.read<PostViewModel>().fetchPosts(currentUserId: userId),
+      context.read<StoryViewModel>().fetchStories(currentUserId: userId),
+      if (userId != null)
+        context.read<ChatViewModel>().fetchConversations(userId),
+    ]);
   }
 
   @override
@@ -142,6 +153,67 @@ class _HomeViewState extends State<HomeView> with TickerProviderStateMixin {
             icon: const Icon(Icons.favorite_border, color: Colors.black87, size: 26),
             tooltip: 'Notifikasi',
           ),
+          Consumer<ChatViewModel>(
+            builder: (ctx, chatVm, _) {
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IconButton(
+                    onPressed: () async {
+                      await Navigator.push(
+                        ctx,
+                        MaterialPageRoute(
+                          builder: (_) => const ChatListView(),
+                        ),
+                      );
+                      if (!ctx.mounted) return;
+                      final u = ctx.read<LoginViewModel>().user;
+                      final uid = int.tryParse(u?.id ?? '') ?? 0;
+                      if (uid > 0) {
+                        ctx.read<ChatViewModel>().fetchConversations(uid);
+                      }
+                    },
+                    icon: const Icon(
+                      Icons.near_me_outlined,
+                      color: Colors.black87,
+                      size: 25,
+                    ),
+                    tooltip: 'Pesan',
+                  ),
+                  if (chatVm.totalUnreadCount > 0)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE11D48),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        child: Center(
+                          child: Text(
+                            chatVm.totalUnreadCount > 99
+                                ? '99+'
+                                : '${chatVm.totalUnreadCount}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
         ] else ...[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -170,97 +242,256 @@ class _HomeViewState extends State<HomeView> with TickerProviderStateMixin {
     );
   }
 
+  void _openCreateStory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CreateStoryView()),
+    );
+  }
+
+  void _promptLogin() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Silakan masuk untuk membagikan cerita.'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        action: SnackBarAction(
+          label: 'Masuk',
+          textColor: Colors.blueAccent,
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const LoginView()),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildStoriesBar(dynamic user) {
-    final stories = _generateDummyStories(user);
+    final storyVm = context.watch<StoryViewModel>();
+    final allUserStories = storyVm.userStories;
+
+    final myUserId = user != null ? int.tryParse(user.id.toString()) ?? 0 : 0;
+    UserStory? myStory;
+    if (myUserId > 0) {
+      myStory = storyVm.getMyStory(myUserId);
+    }
+
+    final otherUserStories = allUserStories
+        .where((s) => s.userId != myUserId && s.stories.isNotEmpty)
+        .toList();
+
+    final hasMyStory = myStory != null && myStory.stories.isNotEmpty;
+    final totalCount = 1 + otherUserStories.length;
+
     return SizedBox(
       height: 115,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: stories.length,
+        itemCount: totalCount,
         itemBuilder: (context, index) {
-          final story = stories[index];
-          final isOwnStory = index == 0 && user != null;
+          if (index == 0) {
+            // Cerita Saya
+            return GestureDetector(
+              onTap: () {
+                if (user == null) {
+                  _promptLogin();
+                  return;
+                }
+                if (hasMyStory) {
+                  final playerList = [myStory!, ...otherUserStories];
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StoryPlayerView(
+                        userStories: playerList,
+                        initialUserIndex: 0,
+                      ),
+                    ),
+                  );
+                } else {
+                  _openCreateStory();
+                }
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Column(
+                  children: [
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 70,
+                          height: 70,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: hasMyStory
+                                ? const LinearGradient(
+                                    colors: [
+                                      Color(0xFF833AB4),
+                                      Color(0xFFFD1D1D),
+                                      Color(0xFFFCB045),
+                                    ],
+                                    begin: Alignment.topRight,
+                                    end: Alignment.bottomLeft,
+                                  )
+                                : null,
+                          ),
+                          child: Container(
+                            margin: hasMyStory
+                                ? const EdgeInsets.all(2.5)
+                                : EdgeInsets.zero,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: hasMyStory
+                                  ? null
+                                  : Border.all(
+                                      color: Colors.grey.shade300,
+                                      width: 0.8,
+                                    ),
+                            ),
+                            child: CircleAvatar(
+                              radius: 30,
+                              backgroundColor: const Color(0xFFE8EFF8),
+                              child: (user != null &&
+                                      user.avatarUrl != null &&
+                                      user.avatarUrl.toString().trim().isNotEmpty)
+                                  ? ClipOval(
+                                      child: Image.network(
+                                        user.avatarUrl.toString(),
+                                        width: 60,
+                                        height: 60,
+                                        fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (context, error, stackTrace) =>
+                                                _storyInitial(user?.name),
+                                      ),
+                                    )
+                                  : _storyInitial(user?.name ?? 'Anda'),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: GestureDetector(
+                            onTap: () {
+                              if (user == null) {
+                                _promptLogin();
+                              } else {
+                                _openCreateStory();
+                              }
+                            },
+                            child: Container(
+                              width: 22,
+                              height: 22,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF3366A0),
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: Colors.white, width: 2),
+                              ),
+                              child: const Icon(Icons.add,
+                                  color: Colors.white, size: 14),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Gap(4),
+                    const SizedBox(
+                      width: 68,
+                      child: Text(
+                        'Cerita Anda',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          // Cerita Pengguna Lain
+          final otherIndex = index - 1;
+          final storyUser = otherUserStories[otherIndex];
 
           return GestureDetector(
             onTap: () {
-              if (isOwnStory) {
-                // Navigate to create post
-              }
+              final playerList = [
+                if (hasMyStory) myStory!,
+                ...otherUserStories,
+              ];
+              final playerIndex = (hasMyStory ? 1 : 0) + otherIndex;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => StoryPlayerView(
+                    userStories: playerList,
+                    initialUserIndex: playerIndex,
+                  ),
+                ),
+              );
             },
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Column(
                 children: [
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // Gradient ring
-                      Container(
-                        width: 70,
-                        height: 70,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: isOwnStory || !story['hasStory']
-                              ? null
-                              : const LinearGradient(
-                                  colors: [
-                                    Color(0xFF833AB4),
-                                    Color(0xFFFD1D1D),
-                                    Color(0xFFFCB045),
-                                  ],
-                                  begin: Alignment.topRight,
-                                  end: Alignment.bottomLeft,
-                                ),
-                          color: isOwnStory || !story['hasStory']
-                              ? Colors.grey.shade300
-                              : null,
-                        ),
-                        child: Container(
-                          margin: const EdgeInsets.all(2.5),
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                          ),
-                          child: CircleAvatar(
-                            radius: 30,
-                            backgroundColor: const Color(0xFFE8EFF8),
-                            child: story['avatar'] != null && story['avatar'].toString().isNotEmpty
-                                ? ClipOval(
-                                    child: Image.network(
-                                      story['avatar'].toString(),
-                                      width: 60,
-                                      height: 60,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) =>
-                                          _storyInitial(story['name']),
-                                    ),
-                                  )
-                                : _storyInitial(story['name']),
-                          ),
-                        ),
+                  Container(
+                    width: 70,
+                    height: 70,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [
+                          Color(0xFF833AB4),
+                          Color(0xFFFD1D1D),
+                          Color(0xFFFCB045),
+                        ],
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
                       ),
-                      if (isOwnStory)
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            width: 22,
-                            height: 22,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF3366A0),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.add, color: Colors.white, size: 14),
-                          ),
-                        ),
-                    ],
+                    ),
+                    child: Container(
+                      margin: const EdgeInsets.all(2.5),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: CircleAvatar(
+                        radius: 30,
+                        backgroundColor: const Color(0xFFE8EFF8),
+                        child: storyUser.avatar.isNotEmpty &&
+                                storyUser.avatarUrl.isNotEmpty
+                            ? ClipOval(
+                                child: Image.network(
+                                  storyUser.avatarUrl,
+                                  width: 60,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                  errorBuilder:
+                                      (context, error, stackTrace) =>
+                                          _storyInitial(storyUser.name),
+                                ),
+                              )
+                            : _storyInitial(storyUser.name),
+                      ),
+                    ),
                   ),
                   const Gap(4),
                   SizedBox(
                     width: 68,
                     child: Text(
-                      isOwnStory ? 'Story Kamu' : story['name'].toString(),
+                      storyUser.username.isNotEmpty
+                          ? storyUser.username
+                          : storyUser.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
@@ -286,19 +517,6 @@ class _HomeViewState extends State<HomeView> with TickerProviderStateMixin {
         color: Color(0xFF3366A0),
       ),
     );
-  }
-
-  List<Map<String, dynamic>> _generateDummyStories(dynamic user) {
-    final stories = <Map<String, dynamic>>[];
-    if (user != null) {
-      stories.add({
-        'name': user.name,
-        'avatar': user.avatarUrl,
-        'hasStory': false,
-        'isOwn': true,
-      });
-    }
-    return stories;
   }
 
   Widget _buildLoadingState() {

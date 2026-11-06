@@ -20,4 +20,10 @@ class ApiConstants {
   static String get toggleFollow => '$baseUrl/follows/toggle.php';
   static String get profile => '$baseUrl/users/profile.php';
   static String get searchUsers => '$baseUrl/users/search.php';
+  static String get createStory => '$baseUrl/stories/create.php';
+  static String get getStories => '$baseUrl/stories/read.php';
+  static String get deleteStory => '$baseUrl/stories/delete.php';
+  static String get getConversations => '$baseUrl/messages/conversations.php';
+  static String get getMessages => '$baseUrl/messages/read.php';
+  static String get sendMessage => '$baseUrl/messages/send.php';
 }

@@ -3,13 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:ziesocial/model/chat_model.dart';
 import 'package:ziesocial/model/post_model.dart';
 import 'package:ziesocial/model/profile_model.dart';
 import 'package:ziesocial/model/user_model.dart';
+import 'package:ziesocial/view/chat_room_view.dart';
 import 'package:ziesocial/view/edit_profile_view.dart';
 import 'package:ziesocial/view/login_view.dart';
+import 'package:ziesocial/view/story_player_view.dart';
 import 'package:ziesocial/viewmodel/login_viewmodel.dart';
 import 'package:ziesocial/viewmodel/profile_viewmodel.dart';
+import 'package:ziesocial/viewmodel/story_viewmodel.dart';
 import 'package:ziesocial/widget/post_card.dart';
 
 class ProfileView extends StatefulWidget {
@@ -65,6 +69,7 @@ class _ProfileViewState extends State<ProfileView>
           widget.userId,
           currentUserId: currentUserId,
         );
+    context.read<StoryViewModel>().fetchStories(currentUserId: currentUserId);
   }
 
   Future<void> _handleFollowToggle() async {
@@ -644,30 +649,56 @@ class _ProfileViewState extends State<ProfileView>
   }
 
   Widget _buildAvatar(ProfileModel profile, bool isOwnProfile) {
+    final storyVm = context.watch<StoryViewModel>();
+    final targetUserId = int.tryParse(profile.user.id) ?? widget.userId;
+    final userStory = storyVm.getUserStory(targetUserId);
+    final hasActiveStory =
+        (userStory != null && userStory.stories.isNotEmpty) ||
+            profile.user.hasStory;
+
     return GestureDetector(
-      onTap: isOwnProfile ? _showAvatarPickerOptions : null,
+      onTap: () {
+        if (hasActiveStory && userStory != null && userStory.stories.isNotEmpty) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => StoryPlayerView(
+                userStories: [userStory],
+                initialUserIndex: 0,
+              ),
+            ),
+          );
+        } else if (isOwnProfile) {
+          _showAvatarPickerOptions();
+        }
+      },
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           Container(
-            padding: const EdgeInsets.all(3),
-            decoration: const BoxDecoration(
+            padding: hasActiveStory ? const EdgeInsets.all(3) : EdgeInsets.zero,
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  Color(0xFF833AB4),
-                  Color(0xFFFD1D1D),
-                  Color(0xFFFCB045),
-                ],
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-              ),
+              gradient: hasActiveStory
+                  ? const LinearGradient(
+                      colors: [
+                        Color(0xFF833AB4),
+                        Color(0xFFFD1D1D),
+                        Color(0xFFFCB045),
+                      ],
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                    )
+                  : null,
             ),
             child: Container(
-              padding: const EdgeInsets.all(2.5),
-              decoration: const BoxDecoration(
+              padding: hasActiveStory ? const EdgeInsets.all(2.5) : EdgeInsets.zero,
+              decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
+                border: hasActiveStory
+                    ? null
+                    : Border.all(color: Colors.grey.shade300, width: 1.5),
               ),
               child: CircleAvatar(
                 radius: 40,
@@ -700,24 +731,27 @@ class _ProfileViewState extends State<ProfileView>
             Positioned(
               right: 0,
               bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: primaryBlue,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.camera_alt_rounded,
-                  size: 14,
-                  color: Colors.white,
+              child: GestureDetector(
+                onTap: _showAvatarPickerOptions,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: primaryBlue,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.camera_alt_rounded,
+                    size: 14,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
@@ -820,6 +854,63 @@ class _ProfileViewState extends State<ProfileView>
                         ),
                       ],
                     ),
+            ),
+          ),
+        ),
+        const Gap(8),
+        Expanded(
+          child: SizedBox(
+            height: 38,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                final currentUser = context.read<LoginViewModel>().user;
+                if (currentUser == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content:
+                          const Text('Silakan login untuk mengirim pesan.'),
+                      behavior: SnackBarBehavior.floating,
+                      action: SnackBarAction(
+                        label: 'Masuk',
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const LoginView()),
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatRoomView(
+                      peer: ChatPeer(
+                        id: int.tryParse(profile.user.id) ?? widget.userId,
+                        username: profile.user.username,
+                        name: profile.user.name,
+                        avatar: profile.user.avatar,
+                      ),
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.near_me_outlined, size: 16),
+              label: const Text(
+                'Pesan',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.black87,
+                backgroundColor: const Color(0xFFF9FAFB),
+                side: BorderSide(color: Colors.grey.shade300),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
             ),
           ),
         ),

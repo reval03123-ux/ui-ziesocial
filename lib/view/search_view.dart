@@ -5,8 +5,10 @@ import 'package:provider/provider.dart';
 import 'package:ziesocial/model/profile_model.dart';
 import 'package:ziesocial/view/login_view.dart';
 import 'package:ziesocial/view/profile_view.dart';
+import 'package:ziesocial/view/story_player_view.dart';
 import 'package:ziesocial/viewmodel/login_viewmodel.dart';
 import 'package:ziesocial/viewmodel/search_viewmodel.dart';
+import 'package:ziesocial/viewmodel/story_viewmodel.dart';
 
 class SearchView extends StatefulWidget {
   const SearchView({super.key});
@@ -268,46 +270,75 @@ class _SearchViewState extends State<SearchView> {
   }
 
   Widget _buildAvatar(SearchUserModel user) {
-    return Container(
-      width: 50,
-      height: 50,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: user.followersCount > 10
-            ? const LinearGradient(
-                colors: [
-                  Color(0xFF833AB4),
-                  Color(0xFFFD1D1D),
-                  Color(0xFFFCB045),
-                ],
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-              )
-            : null,
-        color: user.followersCount <= 10 ? Colors.grey.shade200 : null,
-      ),
-      padding: const EdgeInsets.all(2),
+    final storyVm = context.watch<StoryViewModel>();
+    final userStory = storyVm.getUserStory(user.id);
+    final hasActiveStory =
+        (userStory != null && userStory.stories.isNotEmpty) || user.hasStory;
+
+    return GestureDetector(
+      onTap: () {
+        if (hasActiveStory && userStory != null && userStory.stories.isNotEmpty) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => StoryPlayerView(
+                userStories: [userStory],
+                initialUserIndex: 0,
+              ),
+            ),
+          );
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProfileView(userId: user.id),
+            ),
+          );
+        }
+      },
       child: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        width: 50,
+        height: 50,
+        decoration: BoxDecoration(
           shape: BoxShape.circle,
-        ),
-        padding: const EdgeInsets.all(1.5),
-        child: CircleAvatar(
-          radius: 22,
-          backgroundColor: const Color(0xFFE8EFF8),
-          child: user.avatar.isNotEmpty
-              ? ClipOval(
-                  child: Image.network(
-                    user.avatarUrl,
-                    width: 44,
-                    height: 44,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        _avatarInitial(user.name),
-                  ),
+          gradient: hasActiveStory
+              ? const LinearGradient(
+                  colors: [
+                    Color(0xFF833AB4),
+                    Color(0xFFFD1D1D),
+                    Color(0xFFFCB045),
+                  ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
                 )
-              : _avatarInitial(user.name),
+              : null,
+        ),
+        padding: hasActiveStory ? const EdgeInsets.all(2) : EdgeInsets.zero,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            border: hasActiveStory
+                ? null
+                : Border.all(color: Colors.grey.shade300, width: 0.8),
+          ),
+          padding: hasActiveStory ? const EdgeInsets.all(1.5) : EdgeInsets.zero,
+          child: CircleAvatar(
+            radius: 22,
+            backgroundColor: const Color(0xFFE8EFF8),
+            child: user.avatar.isNotEmpty
+                ? ClipOval(
+                    child: Image.network(
+                      user.avatarUrl,
+                      width: 44,
+                      height: 44,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          _avatarInitial(user.name),
+                    ),
+                  )
+                : _avatarInitial(user.name),
+          ),
         ),
       ),
     );

@@ -7,6 +7,7 @@ class UserModel {
   final String name;
   final String avatar;
   final String bio;
+  final bool hasStory;
 
   UserModel({
     required this.id,
@@ -15,6 +16,7 @@ class UserModel {
     required this.name,
     required this.avatar,
     required this.bio,
+    this.hasStory = false,
   });
 
   String get avatarUrl {
@@ -34,6 +36,7 @@ class UserModel {
     String? name,
     String? avatar,
     String? bio,
+    bool? hasStory,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -42,6 +45,7 @@ class UserModel {
       name: name ?? this.name,
       avatar: avatar ?? this.avatar,
       bio: bio ?? this.bio,
+      hasStory: hasStory ?? this.hasStory,
     );
   }
 
@@ -53,6 +57,9 @@ class UserModel {
       name: json['name'] ?? '',
       avatar: json['avatar'] ?? '',
       bio: json['bio'] ?? '',
+      hasStory: json['has_story'] == true ||
+          json['has_story'] == 1 ||
+          json['has_story'] == '1',
     );
   }
 
@@ -63,5 +70,6 @@ class UserModel {
         'name': name,
         'avatar': avatar,
         'bio': bio,
+        'has_story': hasStory,
       };
 }
