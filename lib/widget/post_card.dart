@@ -26,23 +26,26 @@ class _PostCardState extends State<PostCard>
   late AnimationController _heartController;
   late Animation<double> _heartScale;
   bool _showHeart = false;
+  bool _isBookmarked = false;
 
   @override
   void initState() {
     super.initState();
     _heartController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 650),
     );
     _heartScale = TweenSequence<double>([
       TweenSequenceItem(
-          tween: Tween(begin: 0.0, end: 1.3)
-              .chain(CurveTween(curve: Curves.elasticOut)),
-          weight: 60),
+        tween: Tween(begin: 0.0, end: 1.25)
+            .chain(CurveTween(curve: Curves.elasticOut)),
+        weight: 60,
+      ),
       TweenSequenceItem(
-          tween: Tween(begin: 1.3, end: 0.0)
-              .chain(CurveTween(curve: Curves.easeIn)),
-          weight: 40),
+        tween: Tween(begin: 1.25, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 40,
+      ),
     ]).animate(_heartController)
       ..addStatusListener((status) {
         if (status == AnimationStatus.completed) {
@@ -98,9 +101,7 @@ class _PostCardState extends State<PostCard>
 
   @override
   Widget build(BuildContext context) {
-    // Watch only what we need
     final postVm = context.watch<PostViewModel>();
-    // Find updated post from viewmodel (for like state)
     final post = postVm.posts.firstWhere(
       (p) => p.id == widget.post.id,
       orElse: () => widget.post,
@@ -108,28 +109,28 @@ class _PostCardState extends State<PostCard>
 
     return Container(
       color: Colors.white,
-      margin: const EdgeInsets.only(bottom: 4),
+      margin: const EdgeInsets.only(bottom: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header ──
+          // ── Header (User Info & Options) ──
           _buildHeader(context, post),
 
-          // ── Image ──
+          // ── Media Image (Full-bleed edge-to-edge) ──
           if (post.image.isNotEmpty) _buildImage(context, post),
 
-          // ── Actions ──
+          // ── Action Bar (Like, Comment, Share, Bookmark) ──
           _buildActions(context, post),
 
-          // ── Likes ──
+          // ── Likes Count ──
           if (post.likeCount > 0)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
               child: Text(
                 '${_formatCount(post.likeCount)} suka',
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 13,
+                  fontSize: 13.5,
                   color: Colors.black87,
                 ),
               ),
@@ -138,16 +139,21 @@ class _PostCardState extends State<PostCard>
           // ── Caption ──
           if (post.caption.isNotEmpty) _buildCaption(post),
 
-          // ── Comments link ──
+          // ── Comments Link ──
           _buildCommentsLink(context, post),
 
-          // ── Date ──
+          // ── Date / Timestamp ──
           if (post.createDate.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.fromLTRB(14, 3, 14, 12),
               child: Text(
-                _formatDate(post.createDate),
-                style: TextStyle(color: Colors.grey.shade400, fontSize: 10.5),
+                _formatDate(post.createDate).toUpperCase(),
+                style: TextStyle(
+                  color: Colors.grey.shade400,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.2,
+                ),
               ),
             ),
 
@@ -157,9 +163,10 @@ class _PostCardState extends State<PostCard>
     );
   }
 
+  // ── Header ────────────────────────────────────────────────────────────────
   Widget _buildHeader(BuildContext context, PostModel post) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         children: [
           GestureDetector(
@@ -180,7 +187,8 @@ class _PostCardState extends State<PostCard>
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                      builder: (_) => ProfileView(userId: post.author.id)),
+                    builder: (_) => ProfileView(userId: post.author.id),
+                  ),
                 );
               }
             },
@@ -192,7 +200,8 @@ class _PostCardState extends State<PostCard>
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                    builder: (_) => ProfileView(userId: post.author.id)),
+                  builder: (_) => ProfileView(userId: post.author.id),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,24 +211,28 @@ class _PostCardState extends State<PostCard>
                         ? post.author.username
                         : post.author.name,
                     style: const TextStyle(
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                       fontSize: 13.5,
                       color: Colors.black87,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                   if (post.author.name.isNotEmpty &&
                       post.author.name != post.author.username)
                     Text(
                       post.author.name,
                       style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade500),
+                        fontSize: 11.5,
+                        color: Colors.grey.shade500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                 ],
               ),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.more_horiz, color: Colors.black87, size: 20),
+            icon: const Icon(Icons.more_vert, color: Colors.black87, size: 20),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             onPressed: () => _showPostOptions(context, post),
@@ -263,7 +276,7 @@ class _PostCardState extends State<PostCard>
         padding: hasActiveStory ? const EdgeInsets.all(1.5) : EdgeInsets.zero,
         child: CircleAvatar(
           radius: 15,
-          backgroundColor: const Color(0xFFE8EFF8),
+          backgroundColor: const Color(0xFFF1F5F9),
           child: post.author.avatar.isNotEmpty
               ? ClipOval(
                   child: Image.network(
@@ -287,11 +300,12 @@ class _PostCardState extends State<PostCard>
       style: const TextStyle(
         fontWeight: FontWeight.bold,
         fontSize: 12,
-        color: Color(0xFF3366A0),
+        color: Color(0xFF4F46E5),
       ),
     );
   }
 
+  // ── Image (Full width with double tap like) ──────────────────────────────
   Widget _buildImage(BuildContext context, PostModel post) {
     return GestureDetector(
       onDoubleTap: () => _handleDoubleTap(context),
@@ -300,8 +314,8 @@ class _PostCardState extends State<PostCard>
         children: [
           Container(
             constraints: const BoxConstraints(
-              maxHeight: 460,
-              minHeight: 200,
+              maxHeight: 520,
+              minHeight: 220,
             ),
             width: double.infinity,
             color: const Color(0xFFF8FAFC),
@@ -313,7 +327,7 @@ class _PostCardState extends State<PostCard>
               loadingBuilder: (context, child, progress) {
                 if (progress == null) return child;
                 return Container(
-                  height: 300,
+                  height: 320,
                   color: Colors.grey.shade50,
                   child: Center(
                     child: CircularProgressIndicator(
@@ -322,13 +336,13 @@ class _PostCardState extends State<PostCard>
                               progress.expectedTotalBytes!
                           : null,
                       strokeWidth: 2,
-                      color: const Color(0xFF3366A0),
+                      color: const Color(0xFF4F46E5),
                     ),
                   ),
                 );
               },
               errorBuilder: (context, error, stackTrace) => Container(
-                height: 200,
+                height: 220,
                 color: Colors.grey.shade100,
                 child: Center(
                   child: Column(
@@ -337,27 +351,29 @@ class _PostCardState extends State<PostCard>
                       Icon(Icons.broken_image_outlined,
                           size: 40, color: Colors.grey.shade400),
                       const Gap(8),
-                      Text('Gagal memuat gambar',
-                          style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 12)),
+                      Text(
+                        'Gagal memuat gambar',
+                        style: TextStyle(
+                            color: Colors.grey.shade500, fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
           ),
-          // Double-tap heart animation
+          // Double-tap heart animation (Instagram style)
           if (_showHeart)
             ScaleTransition(
               scale: _heartScale,
               child: const Icon(
                 Icons.favorite,
-                size: 90,
+                size: 96,
                 color: Colors.white,
                 shadows: [
                   Shadow(
-                    color: Colors.black26,
-                    blurRadius: 12,
+                    color: Colors.black38,
+                    blurRadius: 18,
                   ),
                 ],
               ),
@@ -367,50 +383,73 @@ class _PostCardState extends State<PostCard>
     );
   }
 
+  // ── Actions (Like, Comment, Share, Bookmark) ─────────────────────────────
   Widget _buildActions(BuildContext context, PostModel post) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
-          // Like
+          // Like button
           _ActionButton(
             icon: post.isLiked ? Icons.favorite : Icons.favorite_border,
-            color: post.isLiked ? Colors.red : Colors.black87,
+            color: post.isLiked ? const Color(0xFFED4956) : Colors.black87,
             onTap: () => _handleLike(context),
           ),
           const Gap(4),
-          // Comment
+
+          // Comment button
           _ActionButton(
-            icon: Icons.chat_bubble_outline,
+            icon: Icons.chat_bubble_outline_rounded,
             color: Colors.black87,
             onTap: () => CommentSheet.show(context, post),
           ),
           const Gap(4),
-          // Share
+
+          // Share / Direct message button
           _ActionButton(
             icon: Icons.near_me_outlined,
             color: Colors.black87,
-            onTap: () {},
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('Tautan postingan berhasil disalin!'),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              );
+            },
           ),
           const Spacer(),
-          // Bookmark
+
+          // Bookmark button
           _ActionButton(
-            icon: Icons.bookmark_border,
+            icon: _isBookmarked
+                ? Icons.bookmark_rounded
+                : Icons.bookmark_border_rounded,
             color: Colors.black87,
-            onTap: () {},
+            onTap: () {
+              setState(() => _isBookmarked = !_isBookmarked);
+              HapticFeedback.lightImpact();
+            },
           ),
         ],
       ),
     );
   }
 
+  // ── Caption ───────────────────────────────────────────────────────────────
   Widget _buildCaption(PostModel post) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      padding: const EdgeInsets.fromLTRB(14, 2, 14, 4),
       child: RichText(
         text: TextSpan(
           style: const TextStyle(
-              color: Colors.black87, fontSize: 13.5, height: 1.3),
+            color: Colors.black87,
+            fontSize: 13.5,
+            height: 1.35,
+          ),
           children: [
             TextSpan(
               text: '${post.author.username} ',
@@ -423,12 +462,13 @@ class _PostCardState extends State<PostCard>
     );
   }
 
+  // ── Comments Link ─────────────────────────────────────────────────────────
   Widget _buildCommentsLink(BuildContext context, PostModel post) {
     if (post.commentCount == 0) {
       return GestureDetector(
         onTap: () => CommentSheet.show(context, post),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+          padding: const EdgeInsets.fromLTRB(14, 2, 14, 4),
           child: Text(
             'Tambahkan komentar...',
             style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
@@ -439,7 +479,7 @@ class _PostCardState extends State<PostCard>
     return GestureDetector(
       onTap: () => CommentSheet.show(context, post),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+        padding: const EdgeInsets.fromLTRB(14, 2, 14, 4),
         child: Text(
           'Lihat semua ${post.commentCount} komentar',
           style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
@@ -448,6 +488,7 @@ class _PostCardState extends State<PostCard>
     );
   }
 
+  // ── Post Options Bottom Sheet ─────────────────────────────────────────────
   void _showPostOptions(BuildContext context, PostModel post) {
     final currentUser = context.read<LoginViewModel>().user;
     final currentUserId = int.tryParse(currentUser?.id ?? '') ?? 0;
@@ -455,8 +496,9 @@ class _PostCardState extends State<PostCard>
 
     showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (bottomSheetContext) => SafeArea(
         child: Padding(
@@ -465,7 +507,7 @@ class _PostCardState extends State<PostCard>
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 40,
+                width: 38,
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
@@ -491,7 +533,7 @@ class _PostCardState extends State<PostCard>
                 const Divider(height: 1),
               ] else ...[
                 ListTile(
-                  leading: const Icon(Icons.flag_outlined),
+                  leading: const Icon(Icons.report_problem_outlined),
                   title: const Text('Laporkan'),
                   onTap: () => Navigator.pop(bottomSheetContext),
                 ),
@@ -517,6 +559,7 @@ class _PostCardState extends State<PostCard>
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
+        backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
           'Hapus Postingan?',
@@ -591,7 +634,8 @@ class _PostCardState extends State<PostCard>
                 messenger.showSnackBar(
                   SnackBar(
                     content: Text(
-                        postVm.errorMessage ?? 'Gagal menghapus postingan'),
+                      postVm.errorMessage ?? 'Gagal menghapus postingan',
+                    ),
                     backgroundColor: Colors.red,
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(

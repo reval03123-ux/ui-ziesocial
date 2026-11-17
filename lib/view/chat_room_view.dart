@@ -60,13 +60,13 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         if (mounted) _scrollToBottom(animated: false);
       });
 
-      _chatVm?.startPolling(userId: userId, peerId: widget.peer.id);
+      _chatVm?.startListening(userId: userId, peerId: widget.peer.id);
     }
   }
 
   @override
   void dispose() {
-    _chatVm?.stopPolling();
+    _chatVm?.stopListening();
     _msgController.dispose();
     _scrollController.dispose();
     super.dispose();

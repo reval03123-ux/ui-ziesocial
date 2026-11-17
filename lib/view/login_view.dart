@@ -14,94 +14,109 @@ class LoginView extends StatefulWidget {
 }
 
 class _LoginViewState extends State<LoginView> with TickerProviderStateMixin {
-  final _emailController = TextEditingController();
+  final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _rememberMe = true;
 
-  late AnimationController _fadeController;
-  late AnimationController _slideController;
-  late Animation<double> _fadeAnim;
-  late Animation<Offset> _slideAnim;
+  // ── Light Theme Design Tokens (Tailwind Slate & Indigo) ───────────────────
+  static const Color _bg           = Color(0xFFF8FAFC); // slate-50 / page bg
+  static const Color _cardBg       = Colors.white;      // card container
+  static const Color _inputBg      = Color(0xFFF8FAFC); // slate-50
+  static const Color _primary      = Color(0xFF4F46E5); // indigo-600
+  static const Color _slate900     = Color(0xFF0F172A); // main text
+  static const Color _slate800     = Color(0xFF1E293B); // label text
+  static const Color _slate600     = Color(0xFF475569); // body text
+  static const Color _slate500     = Color(0xFF64748B); // muted text
+  static const Color _slate400     = Color(0xFF94A3B8); // placeholder / icons
+  static const Color _slate300     = Color(0xFFCBD5E1); // unchecked border
+  static const Color _slate200     = Color(0xFFE2E8F0); // container borders
 
-  static const Color primaryBlue = Color(0xFF3366A0);
+  late AnimationController _fadeCtrl;
+  late AnimationController _slideCtrl;
+  late Animation<double>  _fadeAnim;
+  late Animation<Offset>  _slideAnim;
 
   @override
   void initState() {
     super.initState();
-    _fadeController = AnimationController(
+    _fadeCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 800),
     );
-    _slideController = AnimationController(
+    _slideCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 650),
     );
-    _fadeAnim =
-        CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut);
-    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.15), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOut));
-
-    _fadeController.forward();
-    _slideController.forward();
+    _fadeAnim  = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeInOut);
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _slideCtrl, curve: Curves.easeOutCubic));
+    _fadeCtrl.forward();
+    _slideCtrl.forward();
   }
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _identifierController.dispose();
     _passwordController.dispose();
-    _fadeController.dispose();
-    _slideController.dispose();
+    _fadeCtrl.dispose();
+    _slideCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _login() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
-    if (email.isEmpty || password.isEmpty) {
-      _showSnackBar('Email dan password wajib diisi!');
+    final identifier = _identifierController.text.trim();
+    final password   = _passwordController.text;
+    if (identifier.isEmpty || password.isEmpty) {
+      _showSnackBar('Email dan kata sandi wajib diisi!', isError: true);
       return;
     }
-
     HapticFeedback.lightImpact();
-
     final success = await context.read<LoginViewModel>().login(
-          email: email,
+          email: identifier,
           password: password,
         );
-
     if (!mounted) return;
-
     if (success) {
       HapticFeedback.mediumImpact();
       Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              const MainScreen(),
-          transitionsBuilder: (context, anim, secondaryAnimation, child) =>
-              FadeTransition(
-            opacity: anim,
-            child: child,
-          ),
+          pageBuilder: (context, anim, secondaryAnim) => const MainScreen(),
+          transitionsBuilder: (context, anim, secondaryAnim, child) =>
+              FadeTransition(opacity: anim, child: child),
           transitionDuration: const Duration(milliseconds: 400),
         ),
         (route) => false,
       );
     } else {
-      final errorMessage = context.read<LoginViewModel>().errorMessage;
-      _showSnackBar(errorMessage ?? 'Login gagal. Periksa email dan password.');
+      final err = context.read<LoginViewModel>().errorMessage;
+      _showSnackBar(err ?? 'Login gagal. Periksa email dan password.', isError: true);
     }
   }
 
-  void _showSnackBar(String message) {
+  void _showSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.grey.shade900,
+        content: Text(
+          message,
+          style: TextStyle(
+            color: isError ? const Color(0xFF991B1B) : _slate900,
+            fontSize: 13.5,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        backgroundColor: isError ? const Color(0xFFFEE2E2) : Colors.white,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: isError ? const Color(0xFFF87171) : _slate200,
+            width: 1,
+          ),
+        ),
         margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -111,9 +126,14 @@ class _LoginViewState extends State<LoginView> with TickerProviderStateMixin {
     final isLoading = context.watch<LoginViewModel>().isLoading;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark,
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        systemNavigationBarColor: _bg,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F7FA),
+        backgroundColor: _bg,
         body: SafeArea(
           child: FadeTransition(
             opacity: _fadeAnim,
@@ -121,85 +141,30 @@ class _LoginViewState extends State<LoginView> with TickerProviderStateMixin {
               position: _slideAnim,
               child: Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Gap(20),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  physics: const BouncingScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Column(
+                      children: [
+                        const Gap(12),
 
-                      // === LOGO ===
-                      _buildLogo(),
+                        // ── Brand Section with Ambient Glow ─────────────────
+                        _buildBrand(),
 
-                      const Gap(40),
+                        const Gap(24),
 
-                      // === CARD LOGIN ===
-                      Container(
-                        constraints: const BoxConstraints(maxWidth: 420),
-                        padding: const EdgeInsets.fromLTRB(28, 32, 28, 28),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.07),
-                              blurRadius: 24,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Email field
-                            _buildEmailField(),
-                            const Gap(14),
+                        // ── Login Card ───────────────────────────────────────
+                        _buildLoginCard(isLoading),
 
-                            // Password field
-                            _buildPasswordField(),
+                        const Gap(24),
 
-                            const Gap(8),
+                        // ── Register Link ───────────────────────────────────
+                        _buildRegisterRow(),
 
-                            // Forgot password
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: () {},
-                                style: TextButton.styleFrom(
-                                  padding: EdgeInsets.zero,
-                                  minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: const Text(
-                                  'Lupa password?',
-                                  style: TextStyle(
-                                    color: primaryBlue,
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            const Gap(20),
-
-                            // Login button
-                            _buildLoginButton(isLoading),
-                          ],
-                        ),
-                      ),
-
-                      const Gap(20),
-
-                      // OR Divider
-                      _buildDivider(),
-
-                      const Gap(20),
-
-                      // Register card
-                      _buildRegisterCard(),
-
-                      const Gap(24),
-                    ],
+                        const Gap(16),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -210,253 +175,356 @@ class _LoginViewState extends State<LoginView> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildLogo() {
+  // ─── Brand Section ──────────────────────────────────────────────────────────
+  Widget _buildBrand() {
     return Column(
       children: [
-        Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF3366A0), Color(0xFF5B8FD4)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+        // App Name
+        RichText(
+          text: const TextSpan(
+            style: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
+              color: _slate900,
             ),
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF3366A0).withValues(alpha: 0.35),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+            children: [
+              TextSpan(text: 'Zie'),
+              TextSpan(
+                text: 'Social',
+                style: TextStyle(color: _primary),
               ),
             ],
           ),
-          child: const Icon(Icons.photo_library_rounded,
-              color: Colors.white, size: 40),
-        ),
-        const Gap(16),
-        const Text(
-          'ZieSocial',
-          style: TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.5,
-            color: Colors.black87,
-          ),
         ),
         const Gap(6),
-        Text(
-          'Bagikan momen, terhubung dengan dunia',
+
+        // Slogan
+        const Text(
+          'CONNECT. CREATE. INSPIRE.',
           style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade500,
-            fontWeight: FontWeight.w400,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 2.2,
+            color: _slate500,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildEmailField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  // ─── Login Card ─────────────────────────────────────────────────────────────
+  Widget _buildLoginCard(bool isLoading) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: _cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _slate200.withValues(alpha: 0.9), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: _slate400.withValues(alpha: 0.15),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Card Header
+          const Text(
+            'Selamat Datang Kembali',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+              color: _slate900,
+            ),
+          ),
+          const Gap(20),
+
+          // ── Email / Username Field ─────────────────────────────────────────
+          _fieldLabel(
+            title: 'Email atau Username',
+            badge: 'Wajib',
+          ),
+          const Gap(8),
+          _buildTextField(
+            controller: _identifierController,
+            hint: 'nama@email.com',
+            icon: Icons.mail_outline_rounded,
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+          ),
+          const Gap(18),
+
+          // ── Password Field ────────────────────────────────────────────────
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Kata Sandi',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _slate800,
+                ),
+              ),
+              GestureDetector(
+                onTap: () {
+                  _showSnackBar('Silakan hubungi administrator untuk mereset kata sandi.');
+                },
+                child: const Text(
+                  'Lupa kata sandi?',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Gap(8),
+          _buildPasswordField(),
+          const Gap(16),
+
+          // ── Remember Me Checkbox ───────────────────────────────────────────
+          GestureDetector(
+            onTap: () => setState(() => _rememberMe = !_rememberMe),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                _buildCheckbox(),
+                const Gap(10),
+                const Text(
+                  'Ingat saya di perangkat ini',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _slate600,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Gap(22),
+
+          // ── Main Submit Button ─────────────────────────────────────────────
+          _buildSubmitButton(isLoading),
+        ],
+      ),
+    );
+  }
+
+  // ─── Sub-widgets & Fields ───────────────────────────────────────────────────
+
+  Widget _fieldLabel({required String title, String? badge}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Text(
-          'Email',
-          style: TextStyle(
+        Text(
+          title,
+          style: const TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
-            color: Colors.black87,
+            color: _slate800,
           ),
         ),
-        const Gap(6),
-        TextField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          textInputAction: TextInputAction.next,
-          style: const TextStyle(fontSize: 14, color: Colors.black87),
-          decoration: InputDecoration(
-            hintText: 'nama@email.com',
-            hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-            prefixIcon: Icon(Icons.email_outlined,
-                color: Colors.grey.shade400, size: 20),
-            filled: true,
-            fillColor: const Color(0xFFF5F7FA),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade200),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: primaryBlue, width: 1.5),
+        if (badge != null)
+          Text(
+            badge,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: _slate400,
             ),
           ),
-        ),
       ],
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+    TextInputAction textInputAction = TextInputAction.done,
+    VoidCallback? onSubmit,
+    bool obscure = false,
+    Widget? suffix,
+  }) {
+    return SizedBox(
+      height: 48,
+      child: TextField(
+        controller: controller,
+        obscureText: obscure,
+        keyboardType: keyboardType,
+        textInputAction: textInputAction,
+        onSubmitted: onSubmit != null ? (_) => onSubmit() : null,
+        style: const TextStyle(
+          fontSize: 14,
+          color: _slate900,
+          fontWeight: FontWeight.w400,
+        ),
+        cursorColor: _primary,
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: const TextStyle(color: _slate400, fontSize: 14),
+          prefixIcon: Icon(icon, color: _slate400, size: 20),
+          suffixIcon: suffix,
+          filled: true,
+          fillColor: _inputBg,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: _slate200),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: _slate200),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: _primary, width: 1.8),
+          ),
+        ),
+      ),
     );
   }
 
   Widget _buildPasswordField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return _buildTextField(
+      controller: _passwordController,
+      hint: '••••••••',
+      icon: Icons.lock_outline_rounded,
+      obscure: _obscurePassword,
+      textInputAction: TextInputAction.done,
+      onSubmit: _login,
+      suffix: IconButton(
+        icon: Icon(
+          _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+          color: _slate400,
+          size: 20,
+        ),
+        splashRadius: 20,
+        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+      ),
+    );
+  }
+
+  Widget _buildCheckbox() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        color: _rememberMe ? _primary : _inputBg,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: _rememberMe ? _primary : _slate300,
+          width: 1.5,
+        ),
+        boxShadow: [
+          if (!_rememberMe)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 2,
+              offset: const Offset(0, 1),
+            ),
+        ],
+      ),
+      child: _rememberMe
+          ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+          : null,
+    );
+  }
+
+  Widget _buildSubmitButton(bool isLoading) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: ElevatedButton(
+        onPressed: isLoading ? null : _login,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _primary,
+          disabledBackgroundColor: _primary.withValues(alpha: 0.6),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: const StadiumBorder(),
+          shadowColor: _primary.withValues(alpha: 0.35),
+        ),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: isLoading
+              ? const SizedBox(
+                  key: ValueKey('loading'),
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2.2,
+                  ),
+                )
+              : const Row(
+                  key: ValueKey('idle'),
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Masuk',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.2,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Gap(8),
+                    Icon(Icons.arrow_forward_rounded, size: 18, color: Colors.white),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Register Row ────────────────────────────────────────────────────────────
+  Widget _buildRegisterRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         const Text(
-          'Password',
+          'Belum punya akun? ',
           style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
+            fontSize: 14,
+            color: _slate600,
+            fontWeight: FontWeight.w400,
           ),
         ),
-        const Gap(6),
-        TextField(
-          controller: _passwordController,
-          obscureText: _obscurePassword,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => _login(),
-          style: const TextStyle(fontSize: 14, color: Colors.black87),
-          decoration: InputDecoration(
-            hintText: '••••••••',
-            hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-            prefixIcon: Icon(Icons.lock_outline,
-                color: Colors.grey.shade400, size: 20),
-            suffixIcon: GestureDetector(
-              onTap: () => setState(() => _obscurePassword = !_obscurePassword),
-              child: Icon(
-                _obscurePassword
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-                color: Colors.grey.shade400,
-                size: 20,
+        GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const RegisterView()),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Daftar sekarang',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _primary,
+                ),
               ),
-            ),
-            filled: true,
-            fillColor: const Color(0xFFF5F7FA),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade200),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: primaryBlue, width: 1.5),
-            ),
+              Gap(2),
+              Icon(Icons.chevron_right_rounded, size: 16, color: _primary),
+            ],
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildLoginButton(bool isLoading) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      height: 50,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF3366A0), Color(0xFF4A7FC1)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: primaryBlue.withValues(alpha: 0.35),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: isLoading ? null : _login,
-          borderRadius: BorderRadius.circular(12),
-          child: Center(
-            child: isLoading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2.5,
-                    ),
-                  )
-                : const Text(
-                    'Masuk',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDivider() {
-    return Row(
-      children: [
-        Expanded(child: Divider(color: Colors.grey.shade300)),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            'atau',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-          ),
-        ),
-        Expanded(child: Divider(color: Colors.grey.shade300)),
-      ],
-    );
-  }
-
-  Widget _buildRegisterCard() {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 420),
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Belum punya akun? ',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5),
-          ),
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const RegisterView()),
-              );
-            },
-            child: const Text(
-              'Buat akun',
-              style: TextStyle(
-                color: primaryBlue,
-                fontSize: 13.5,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

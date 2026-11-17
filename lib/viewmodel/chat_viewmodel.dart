@@ -2,10 +2,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:ziesocial/core/constants.dart';
 import 'package:ziesocial/core/network.dart';
+import 'package:ziesocial/core/pusher_config.dart';
 import 'package:ziesocial/model/chat_model.dart';
+import 'package:ziesocial/service/pusher_service.dart';
 
 class ChatViewModel extends ChangeNotifier {
   final ApiClient _apiClient;
+  final PusherChatService _pusherService = PusherChatService();
 
   ChatViewModel(this._apiClient);
 
@@ -17,7 +20,7 @@ class ChatViewModel extends ChangeNotifier {
   String? _errorMessage;
   int _totalUnreadCount = 0;
 
-  Timer? _pollTimer;
+  Timer? _fallbackTimer;
   int? _activeUserId;
   int? _activePeerId;
 
@@ -28,6 +31,7 @@ class ChatViewModel extends ChangeNotifier {
   bool get isSending => _isSending;
   String? get errorMessage => _errorMessage;
   int get totalUnreadCount => _totalUnreadCount;
+  bool get isPusherActive => PusherConfig.isConfigured;
 
   Future<void> fetchConversations(int userId) async {
     _isLoadingConversations = true;
@@ -102,6 +106,93 @@ class ChatViewModel extends ChangeNotifier {
     }
   }
 
+  /// Menangani pesan realtime yang masuk dari Pusher
+  void _handleIncomingMessage(dynamic rawData) {
+    if (rawData == null || rawData is! Map<String, dynamic>) return;
+
+    try {
+      final msg = ChatMessage.fromJson(rawData);
+
+      // Pastikan pesan milik percakapan yang sedang aktif
+      final isRelevant = (_activeUserId != null && _activePeerId != null) &&
+          ((msg.senderId == _activePeerId && msg.receiverId == _activeUserId) ||
+              (msg.senderId == _activeUserId && msg.receiverId == _activePeerId));
+
+      if (isRelevant) {
+        // Cek duplikasi ID
+        if (!_currentMessages.any((m) => m.id == msg.id)) {
+          // Atur flag isMine berdasarkan sender
+          final isMine = _activeUserId != null && msg.senderId == _activeUserId;
+          final adjustedMsg = ChatMessage(
+            id: msg.id,
+            senderId: msg.senderId,
+            receiverId: msg.receiverId,
+            message: msg.message,
+            isMine: isMine,
+            isRead: msg.isRead,
+            createDate: msg.createDate,
+          );
+
+          _currentMessages.add(adjustedMsg);
+
+          // Perbarui conversation list jika ada
+          final convIdx = _conversations.indexWhere((c) => c.peer.id == _activePeerId);
+          if (convIdx != -1) {
+            final conv = _conversations[convIdx];
+            _conversations[convIdx] = ChatConversation(
+              peer: conv.peer,
+              lastMessage: adjustedMsg,
+              unreadCount: 0,
+            );
+          }
+
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('[ChatViewModel] Gagal memproses pesan Pusher: $e');
+    }
+  }
+
+  /// Mulai mendengarkan pesan masuk menggunakan Pusher WebSocket
+  void startListening({required int userId, required int peerId}) {
+    stopListening();
+    _activeUserId = userId;
+    _activePeerId = peerId;
+
+    if (PusherConfig.isConfigured) {
+      // ── Realtime via Pusher WebSocket ──
+      _pusherService.initPusher(
+        onNewMessage: _handleIncomingMessage,
+      );
+      _pusherService.subscribeToChat(userId: userId, peerId: peerId);
+    } else {
+      // ── Fallback Polling (hanya jika Pusher belum dikonfigurasi) ──
+      _fallbackTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
+        _pollNewMessages();
+      });
+    }
+  }
+
+  /// Alias backwards-compatibility untuk startListening
+  void startPolling({required int userId, required int peerId}) {
+    startListening(userId: userId, peerId: peerId);
+  }
+
+  /// Hentikan listener realtime / timer
+  void stopListening() {
+    _pusherService.unsubscribeFromCurrent();
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
+    _activeUserId = null;
+    _activePeerId = null;
+  }
+
+  /// Alias backwards-compatibility untuk stopListening
+  void stopPolling() {
+    stopListening();
+  }
+
   Future<void> _pollNewMessages() async {
     if (_activeUserId == null || _activePeerId == null) return;
 
@@ -119,7 +210,6 @@ class ChatViewModel extends ChangeNotifier {
             .map((item) => ChatMessage.fromJson(item as Map<String, dynamic>))
             .toList();
 
-        // Hindari duplikasi
         for (final msg in newMsgs) {
           if (!_currentMessages.any((m) => m.id == msg.id)) {
             _currentMessages.add(msg);
@@ -128,25 +218,8 @@ class ChatViewModel extends ChangeNotifier {
         notifyListeners();
       }
     } catch (_) {
-      // Polling error silently handled to prevent UI disruption
+      // Polling error silently handled
     }
-  }
-
-  void startPolling({required int userId, required int peerId}) {
-    stopPolling();
-    _activeUserId = userId;
-    _activePeerId = peerId;
-
-    _pollTimer = Timer.periodic(const Duration(milliseconds: 2000), (_) {
-      _pollNewMessages();
-    });
-  }
-
-  void stopPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
-    _activeUserId = null;
-    _activePeerId = null;
   }
 
   Future<bool> sendMessage({
@@ -200,8 +273,7 @@ class ChatViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
-    stopPolling();
+    stopListening();
     super.dispose();
   }
 }
-

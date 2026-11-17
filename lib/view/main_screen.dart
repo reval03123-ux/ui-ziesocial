@@ -10,6 +10,16 @@ import 'package:ziesocial/viewmodel/login_viewmodel.dart';
 import 'package:ziesocial/viewmodel/post_viewmodel.dart';
 import 'package:ziesocial/viewmodel/profile_viewmodel.dart';
 
+// ── Light Theme Design Tokens ────────────────────────────────────
+const _bg           = Color(0xFFF8FAFC); // slate-50
+const _primary      = Color(0xFF4F46E5); // indigo-600
+const _slate900     = Color(0xFF0F172A); // main dark text
+const _slate600     = Color(0xFF475569); // icons
+const _slate500     = Color(0xFF64748B); // inactive labels
+const _slate400     = Color(0xFF94A3B8); // muted icons
+const _slate200     = Color(0xFFE2E8F0); // borders
+const _slate100     = Color(0xFFF1F5F9); // backgrounds
+
 class MainScreen extends StatefulWidget {
   final int initialIndex;
 
@@ -21,6 +31,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   late int _currentIndex;
+  // 4 animated icons: indices 0, 1, 3, 4 (index 2 is center add button)
   late List<AnimationController> _iconControllers;
   late List<Animation<double>> _iconScales;
 
@@ -38,13 +49,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
 
     _iconScales = _iconControllers
-        .map((c) => Tween<double>(begin: 1.0, end: 1.25).animate(
+        .map((c) => Tween<double>(begin: 1.0, end: 1.18).animate(
               CurvedAnimation(parent: c, curve: Curves.easeOut),
             ))
         .toList();
 
-    // Animate initial icon
-    _iconControllers[_currentIndex].forward();
+    // Map _currentIndex (0,1,3,4) to controller index (0,1,2,3)
+    final ctrlIdx = _tabToCtrlIndex(_currentIndex);
+    if (ctrlIdx >= 0) _iconControllers[ctrlIdx].forward();
   }
 
   @override
@@ -55,11 +67,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  /// Map tab index (0,1,3,4) → controller index (0,1,2,3)
+  int _tabToCtrlIndex(int tabIndex) {
+    switch (tabIndex) {
+      case 0: return 0;
+      case 1: return 1;
+      case 3: return 2;
+      case 4: return 3;
+      default: return -1;
+    }
+  }
+
   void _onTabTapped(int index) async {
     final user = context.read<LoginViewModel>().user;
 
+    // Center add button
     if (index == 2) {
-      // Create Post
       if (user == null) {
         _promptLogin('Silakan login untuk membuat postingan.');
         return;
@@ -77,7 +100,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       return;
     }
 
-    if (index == 3) {
+    // Profile tab
+    if (index == 4) {
       if (user == null) {
         _promptLogin('Silakan login untuk melihat profil Anda.');
         return;
@@ -92,17 +116,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
 
     if (index == _currentIndex) {
-      // Same tab — bounce animation
-      _iconControllers[index].forward().then((_) => _iconControllers[index].reverse());
+      final ctrlIdx = _tabToCtrlIndex(index);
+      if (ctrlIdx >= 0) {
+        _iconControllers[ctrlIdx]
+            .forward()
+            .then((_) => _iconControllers[ctrlIdx].reverse());
+      }
       return;
     }
 
     HapticFeedback.selectionClick();
 
-    // Reverse old icon
-    _iconControllers[_currentIndex].reverse();
-    // Forward new icon
-    _iconControllers[index].forward();
+    final oldCtrl = _tabToCtrlIndex(_currentIndex);
+    final newCtrl = _tabToCtrlIndex(index);
+    if (oldCtrl >= 0) _iconControllers[oldCtrl].reverse();
+    if (newCtrl >= 0) _iconControllers[newCtrl].forward();
 
     setState(() {
       _currentIndex = index;
@@ -112,13 +140,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   void _promptLogin(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.grey.shade900,
+        content: Text(message, style: const TextStyle(color: _slate900)),
+        backgroundColor: Colors.white,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: _slate200),
+        ),
         action: SnackBarAction(
           label: 'Masuk',
-          textColor: Colors.blueAccent,
+          textColor: _primary,
           onPressed: () {
             Navigator.push(
               context,
@@ -133,14 +164,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<LoginViewModel>().user;
-    final currentUserId = user != null ? int.tryParse(user.id) ?? 0 : 0;
+    final currentUserId =
+        user != null ? int.tryParse(user.id) ?? 0 : 0;
     final isDesktop = MediaQuery.of(context).size.width > 600;
 
-    // ValueKey on ProfileView ensures it rebuilds when userId changes (e.g. after switching accounts)
+    // Pages for IndexedStack: 5 slots; slot 2 is placeholder (never shown)
     final pages = [
       const HomeView(),
       const SearchView(),
       const SizedBox.shrink(),
+      const _ActivityPlaceholder(),
       ProfileView(
         key: ValueKey('profile_$currentUserId'),
         userId: currentUserId,
@@ -149,6 +182,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     ];
 
     final scaffold = Scaffold(
+      backgroundColor: _bg,
       body: IndexedStack(
         index: _currentIndex,
         children: pages,
@@ -157,18 +191,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark,
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
       child: isDesktop
           ? Row(
               children: [
-                // Left sidebar for desktop (Instagram-like)
                 _buildDesktopSidebar(user),
-                // Main content area with max width
                 Expanded(
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 620),
                       child: Scaffold(
+                        backgroundColor: _bg,
                         body: IndexedStack(
                           index: _currentIndex,
                           children: pages,
@@ -183,34 +221,30 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ── Desktop Sidebar ──────────────────────────────────────────
   Widget _buildDesktopSidebar(dynamic user) {
     return Container(
       width: 72,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(
-          right: BorderSide(color: Colors.grey.shade200, width: 0.5),
+          right: BorderSide(color: _slate200, width: 1),
         ),
       ),
       child: SafeArea(
         child: Column(
           children: [
             const SizedBox(height: 16),
-            // Logo
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: ShaderMask(
-                shaderCallback: (b) => const LinearGradient(
-                  colors: [Color(0xFF3366A0), Color(0xFF5B8FD4)],
-                ).createShader(b),
-                child: const Icon(Icons.photo_library_rounded,
-                    size: 28, color: Colors.white),
-              ),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Icon(Icons.diversity_3_rounded,
+                  size: 28, color: _primary),
             ),
             const SizedBox(height: 8),
             _buildSidebarItem(0, Icons.home_outlined, Icons.home),
-            _buildSidebarItem(1, Icons.search, Icons.search),
+            _buildSidebarItem(1, Icons.explore_outlined, Icons.explore),
             _buildSidebarAddItem(),
+            _buildSidebarItem(3, Icons.favorite_border, Icons.favorite),
             _buildSidebarProfileItem(user),
             const Spacer(),
           ],
@@ -228,13 +262,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         height: 48,
         margin: const EdgeInsets.symmetric(vertical: 4),
         decoration: BoxDecoration(
-          color: isActive ? const Color(0xFFE8EFF8) : Colors.transparent,
+          color: isActive ? _slate100 : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(
           isActive ? activeIcon : icon,
           size: 26,
-          color: isActive ? const Color(0xFF3366A0) : Colors.black54,
+          color: isActive ? _primary : _slate600,
         ),
       ),
     );
@@ -248,12 +282,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         height: 44,
         margin: const EdgeInsets.symmetric(vertical: 4),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF3366A0), Color(0xFF5B8FD4)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+          color: _primary,
           borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: _primary.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: const Icon(Icons.add, color: Colors.white, size: 22),
       ),
@@ -261,14 +298,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildSidebarProfileItem(dynamic user) {
+    final isActive = _currentIndex == 4;
     return GestureDetector(
-      onTap: () => _onTabTapped(3),
+      onTap: () => _onTabTapped(4),
       child: Container(
         width: 56,
         height: 48,
         margin: const EdgeInsets.symmetric(vertical: 4),
         decoration: BoxDecoration(
-          color: _currentIndex == 3 ? const Color(0xFFE8EFF8) : Colors.transparent,
+          color: isActive ? _slate100 : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Center(
@@ -278,14 +316,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: _currentIndex == 3 ? const Color(0xFF3366A0) : Colors.grey.shade300,
+                color: isActive ? _primary : _slate200,
                 width: 2,
               ),
             ),
             child: ClipOval(
               child: user != null && user.name.isNotEmpty
                   ? Container(
-                      color: const Color(0xFFE8EFF8),
+                      color: _slate100,
                       child: Center(
                         child: user.avatar.isNotEmpty
                             ? Image.network(
@@ -298,7 +336,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                   style: const TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFF3366A0),
+                                    color: _primary,
                                   ),
                                 ),
                               )
@@ -307,16 +345,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                 style: const TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFF3366A0),
+                                  color: _primary,
                                 ),
                               ),
                       ),
                     )
-                  : Container(
-                      color: Colors.grey.shade100,
-                      child: const Icon(Icons.person_outline,
-                          size: 16, color: Colors.grey),
-                    ),
+                  : const Icon(Icons.person_outline_rounded,
+                      size: 16, color: _slate500),
             ),
           ),
         ),
@@ -324,12 +359,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ── Bottom Nav Bar ───────────────────────────────────────────
   Widget _buildBottomNavBar(dynamic user) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Colors.grey.shade200, width: 0.5),
+        color: Colors.white.withValues(alpha: 0.95),
+        border: const Border(
+          top: BorderSide(color: _slate200, width: 1),
         ),
         boxShadow: [
           BoxShadow(
@@ -342,13 +378,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 56,
+          height: 62,
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildNavItem(0, _homeIcon, _homeActiveIcon),
-              _buildNavItem(1, _searchIcon, _searchActiveIcon),
+              _buildNavItem(0, Icons.home_outlined, Icons.home, 'Feed'),
+              _buildNavItem(1, Icons.explore_outlined, Icons.explore, 'Explore'),
               _buildAddButton(),
+              _buildNavItem(
+                  3, Icons.favorite_border_rounded, Icons.favorite_rounded, 'Activity'),
               _buildProfileNavItem(user),
             ],
           ),
@@ -357,47 +394,67 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildNavItem(int index, Widget icon, Widget activeIcon) {
+  Widget _buildNavItem(
+      int index, IconData icon, IconData activeIcon, String label) {
     final isActive = _currentIndex == index;
-    return GestureDetector(
-      onTap: () => _onTabTapped(index),
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 64,
-        child: Center(
-          child: ScaleTransition(
-            scale: _iconScales[index],
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: isActive
-                  ? KeyedSubtree(key: ValueKey('active_$index'), child: activeIcon)
-                  : KeyedSubtree(key: ValueKey('inactive_$index'), child: icon),
+    final ctrlIdx = _tabToCtrlIndex(index);
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _onTabTapped(index),
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ScaleTransition(
+              scale: ctrlIdx >= 0
+                  ? _iconScales[ctrlIdx]
+                  : const AlwaysStoppedAnimation(1.0),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: Icon(
+                  isActive ? activeIcon : icon,
+                  key: ValueKey('${index}_$isActive'),
+                  size: 24,
+                  color: isActive ? _primary : _slate500,
+                ),
+              ),
             ),
-          ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: isActive ? _primary : _slate500,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildAddButton() {
-    return GestureDetector(
-      onTap: () => _onTabTapped(2),
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 64,
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _onTabTapped(2),
+        behavior: HitTestBehavior.opaque,
         child: Center(
           child: Container(
-            width: 40,
-            height: 40,
+            width: 46,
+            height: 46,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF3366A0), Color(0xFF5B8FD4)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(10),
+              color: _primary,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: _primary.withValues(alpha: 0.35),
+                  blurRadius: 12,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
-            child: const Icon(Icons.add, color: Colors.white, size: 24),
+            child: const Icon(Icons.add, color: Colors.white, size: 26),
           ),
         ),
       ),
@@ -405,73 +462,126 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildProfileNavItem(dynamic user) {
-    return GestureDetector(
-      onTap: () => _onTabTapped(3),
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 64,
-        child: Center(
-          child: ScaleTransition(
-            scale: _iconScales[3],
-            child: Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: _currentIndex == 3
-                    ? Border.all(color: Colors.black87, width: 2)
-                    : Border.all(color: Colors.grey.shade300, width: 1.5),
-              ),
-              child: ClipOval(
-                child: user != null && user.name.isNotEmpty
-                    ? Container(
-                        color: const Color(0xFFE8EFF8),
-                        child: Center(
-                          child: user.avatar.isNotEmpty
-                              ? Image.network(
-                                  user.avatarUrl,
-                                  fit: BoxFit.cover,
-                                  width: 30,
-                                  height: 30,
-                                  errorBuilder: (context, error, stackTrace) => Text(
+    final isActive = _currentIndex == 4;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _onTabTapped(4),
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ScaleTransition(
+              scale: _iconScales[3],
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isActive ? _primary : _slate200,
+                    width: isActive ? 2 : 1.2,
+                  ),
+                ),
+                child: ClipOval(
+                  child: user != null && user.name.isNotEmpty
+                      ? Container(
+                          color: _slate100,
+                          child: Center(
+                            child: user.avatar.isNotEmpty
+                                ? Image.network(
+                                    user.avatarUrl,
+                                    fit: BoxFit.cover,
+                                    width: 26,
+                                    height: 26,
+                                    errorBuilder: (context, error, stackTrace) => Text(
+                                      user.name[0].toUpperCase(),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: _primary,
+                                      ),
+                                    ),
+                                  )
+                                : Text(
                                     user.name[0].toUpperCase(),
                                     style: const TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 11,
                                       fontWeight: FontWeight.bold,
-                                      color: Color(0xFF3366A0),
+                                      color: _primary,
                                     ),
                                   ),
-                                )
-                              : Text(
-                                  user.name[0].toUpperCase(),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF3366A0),
-                                  ),
-                                ),
-                        ),
-                      )
-                    : Container(
-                        color: Colors.grey.shade100,
-                        child: const Icon(Icons.person_outline,
-                            size: 18, color: Colors.grey),
-                      ),
+                          ),
+                        )
+                      : const Icon(Icons.person_outline_rounded,
+                          size: 16, color: _slate500),
+                ),
               ),
             ),
-          ),
+            const SizedBox(height: 3),
+            Text(
+              'Profile',
+              style: TextStyle(
+                fontSize: 10,
+                color: isActive ? _primary : _slate500,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
+}
 
-  // Icons
-  static const _homeIcon =
-      Icon(Icons.home_outlined, size: 28, color: Colors.black54);
-  static const _homeActiveIcon =
-      Icon(Icons.home, size: 28, color: Colors.black87);
-  static const _searchIcon =
-      Icon(Icons.search, size: 28, color: Colors.black54);
-  static const _searchActiveIcon =
-      Icon(Icons.search, size: 28, color: Colors.black87);
+// ── Activity placeholder ─────────────────────────────────────────
+class _ActivityPlaceholder extends StatelessWidget {
+  const _ActivityPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bg,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        title: const Text(
+          'Activity',
+          style: TextStyle(
+            color: _slate900,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+        centerTitle: false,
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, thickness: 1, color: _slate200),
+        ),
+      ),
+      body: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.favorite_border_rounded, size: 56, color: _slate400),
+            SizedBox(height: 16),
+            Text(
+              'Belum Ada Notifikasi',
+              style: TextStyle(
+                color: _slate900,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Suka, komentar, dan aktivitas linimasa akan muncul di sini.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: _slate500, fontSize: 13.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
