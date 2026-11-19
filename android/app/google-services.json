@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "62387759719",
+    "project_id": "ziesocial-8fbd7",
+    "storage_bucket": "ziesocial-8fbd7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:62387759719:android:a733055edaf3b4bb8582c2",
+        "android_client_info": {
+          "package_name": "com.example.ziesocial"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB9hlrj619SXufKgESf_FKelPwUfjUavk0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

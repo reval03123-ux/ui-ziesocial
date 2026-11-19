@@ -41,6 +41,11 @@ class ApiClient {
       throw Exception('Koneksi timeout. Pastikan server lokal dan ngrok sedang berjalan.');
     } on SocketException {
       throw Exception('Gagal terhubung ke server. Periksa koneksi internet atau server.');
+    } on http.ClientException {
+      throw Exception('Gagal menghubungi server. Pastikan server aktif dan CORS diizinkan.');
+    } catch (e) {
+      if (e is Exception) rethrow;
+      throw Exception('Terjadi kesalahan jaringan: $e');
     }
   }
 
@@ -67,6 +72,11 @@ class ApiClient {
       throw Exception('Koneksi timeout. Pastikan server lokal dan ngrok sedang berjalan.');
     } on SocketException {
       throw Exception('Gagal terhubung ke server. Periksa koneksi internet atau server.');
+    } on http.ClientException {
+      throw Exception('Gagal menghubungi server. Pastikan server aktif dan CORS diizinkan.');
+    } catch (e) {
+      if (e is Exception) rethrow;
+      throw Exception('Terjadi kesalahan jaringan: $e');
     }
   }
 
@@ -94,6 +104,11 @@ class ApiClient {
       throw Exception('Upload timeout. Koneksi server terlalu lambat atau terputus.');
     } on SocketException {
       throw Exception('Gagal terhubung ke server saat upload.');
+    } on http.ClientException {
+      throw Exception('Gagal upload ke server. Periksa koneksi atau CORS.');
+    } catch (e) {
+      if (e is Exception) rethrow;
+      throw Exception('Terjadi kesalahan upload: $e');
     }
   }
 
@@ -128,6 +143,11 @@ class ApiClient {
       throw Exception('Upload timeout. Koneksi server terlalu lambat atau terputus.');
     } on SocketException {
       throw Exception('Gagal terhubung ke server saat upload.');
+    } on http.ClientException {
+      throw Exception('Gagal upload ke server. Periksa koneksi atau CORS.');
+    } catch (e) {
+      if (e is Exception) rethrow;
+      throw Exception('Terjadi kesalahan upload: $e');
     }
   }
 }

@@ -214,4 +214,50 @@ class ProfileViewModel extends ChangeNotifier {
     _profile = null;
     notifyListeners();
   }
+
+  /// Mengambil daftar Pengikut atau Mengikuti dari server
+  Future<List<FollowUserModel>> fetchFollowsList({
+    required int userId,
+    required String type, // 'followers' atau 'following'
+    int? currentUserId,
+    String? query,
+  }) async {
+    try {
+      var url = '${ApiConstants.getFollows}?user_id=$userId&type=$type';
+      if (currentUserId != null && currentUserId > 0) {
+        url += '&current_user_id=$currentUserId';
+      }
+      if (query != null && query.trim().isNotEmpty) {
+        url += '&q=${Uri.encodeComponent(query.trim())}';
+      }
+
+      final response = await _apiClient.get(url);
+      final rawList = response['data'] as List<dynamic>? ?? [];
+      return rawList
+          .map((item) => FollowUserModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[ProfileViewModel] Gagal mengambil daftar follows: $e');
+      return [];
+    }
+  }
+
+  /// Toggle Follow pengguna dari daftar
+  Future<bool> toggleFollowUser({
+    required int followerId,
+    required int followingId,
+  }) async {
+    try {
+      final response = await _apiClient.post(
+        ApiConstants.toggleFollow,
+        body: {
+          'follower_id': followerId,
+          'following_id': followingId,
+        },
+      );
+      return response['status'] == 'followed' || response['is_following'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
 }

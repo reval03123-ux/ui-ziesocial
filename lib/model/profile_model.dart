@@ -152,3 +152,65 @@ class SearchUserModel {
     );
   }
 }
+
+class FollowUserModel {
+  final int id;
+  final String username;
+  final String name;
+  final String avatar;
+  final String bio;
+  final bool isFollowing;
+  final bool isMe;
+
+  FollowUserModel({
+    required this.id,
+    required this.username,
+    required this.name,
+    required this.avatar,
+    required this.bio,
+    required this.isFollowing,
+    this.isMe = false,
+  });
+
+  String get avatarUrl {
+    if (avatar.isEmpty) return '';
+    if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
+      return avatar;
+    }
+    final serverRoot = ApiConstants.baseUrl.replaceAll('/api', '');
+    final cleanPath = avatar.startsWith('/') ? avatar.substring(1) : avatar;
+    return '$serverRoot/$cleanPath';
+  }
+
+  FollowUserModel copyWith({
+    bool? isFollowing,
+  }) {
+    return FollowUserModel(
+      id: id,
+      username: username,
+      name: name,
+      avatar: avatar,
+      bio: bio,
+      isFollowing: isFollowing ?? this.isFollowing,
+      isMe: isMe,
+    );
+  }
+
+  factory FollowUserModel.fromJson(Map<String, dynamic> json) {
+    return FollowUserModel(
+      id: json['id'] is int
+          ? json['id']
+          : int.tryParse(json['id']?.toString() ?? '0') ?? 0,
+      username: json['username']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      avatar: json['avatar']?.toString() ?? '',
+      bio: json['bio']?.toString() ?? '',
+      isFollowing: json['is_following'] == true ||
+          json['is_following'] == 1 ||
+          json['is_following'] == '1',
+      isMe: json['is_me'] == true ||
+          json['is_me'] == 1 ||
+          json['is_me'] == '1',
+    );
+  }
+}

@@ -4,11 +4,15 @@ import 'package:provider/provider.dart';
 import 'package:ziesocial/view/create_post_view.dart';
 import 'package:ziesocial/view/home_view.dart';
 import 'package:ziesocial/view/login_view.dart';
+import 'package:ziesocial/view/notification_view.dart';
 import 'package:ziesocial/view/profile_view.dart';
 import 'package:ziesocial/view/search_view.dart';
 import 'package:ziesocial/viewmodel/login_viewmodel.dart';
+import 'package:ziesocial/viewmodel/notification_viewmodel.dart';
 import 'package:ziesocial/viewmodel/post_viewmodel.dart';
 import 'package:ziesocial/viewmodel/profile_viewmodel.dart';
+import 'package:ziesocial/widget/in_app_notification_banner.dart';
+import 'package:ziesocial/service/fcm_service.dart';
 
 // ── Light Theme Design Tokens ────────────────────────────────────
 const _bg           = Color(0xFFF8FAFC); // slate-50
@@ -16,7 +20,6 @@ const _primary      = Color(0xFF4F46E5); // indigo-600
 const _slate900     = Color(0xFF0F172A); // main dark text
 const _slate600     = Color(0xFF475569); // icons
 const _slate500     = Color(0xFF64748B); // inactive labels
-const _slate400     = Color(0xFF94A3B8); // muted icons
 const _slate200     = Color(0xFFE2E8F0); // borders
 const _slate100     = Color(0xFFF1F5F9); // backgrounds
 
@@ -57,6 +60,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // Map _currentIndex (0,1,3,4) to controller index (0,1,2,3)
     final ctrlIdx = _tabToCtrlIndex(_currentIndex);
     if (ctrlIdx >= 0) _iconControllers[ctrlIdx].forward();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final user = context.read<LoginViewModel>().user;
+      final userId = int.tryParse(user?.id ?? '') ?? 0;
+      if (userId > 0) {
+        context.read<NotificationViewModel>().init(userId);
+        FcmService().init(userId: userId);
+      }
+    });
   }
 
   @override
@@ -98,6 +111,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             );
       }
       return;
+    }
+
+    // Activity / Notification tab
+    if (index == 3) {
+      if (user != null) {
+        final currentUserId = int.tryParse(user.id) ?? 0;
+        if (currentUserId > 0) {
+          context.read<NotificationViewModel>().markAllAsRead(currentUserId);
+        }
+      }
     }
 
     // Profile tab
@@ -173,7 +196,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       const HomeView(),
       const SearchView(),
       const SizedBox.shrink(),
-      const _ActivityPlaceholder(),
+      const NotificationView(isEmbedded: true),
       ProfileView(
         key: ValueKey('profile_$currentUserId'),
         userId: currentUserId,
@@ -183,9 +206,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
     final scaffold = Scaffold(
       backgroundColor: _bg,
-      body: IndexedStack(
-        index: _currentIndex,
-        children: pages,
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: _currentIndex,
+            children: pages,
+          ),
+          const InAppNotificationBanner(),
+        ],
       ),
       bottomNavigationBar: _buildBottomNavBar(user),
     );
@@ -265,10 +293,37 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           color: isActive ? _slate100 : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(
-          isActive ? activeIcon : icon,
-          size: 26,
-          color: isActive ? _primary : _slate600,
+        child: Center(
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                isActive ? activeIcon : icon,
+                size: 26,
+                color: isActive ? _primary : _slate600,
+              ),
+              if (index == 3)
+                Consumer<NotificationViewModel>(
+                  builder: (context, notifVm, child) {
+                    if (notifVm.unreadCount <= 0) {
+                      return const SizedBox.shrink();
+                    }
+                    return Positioned(
+                      right: -3,
+                      top: -2,
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFEF4444),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -409,14 +464,39 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               scale: ctrlIdx >= 0
                   ? _iconScales[ctrlIdx]
                   : const AlwaysStoppedAnimation(1.0),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: Icon(
-                  isActive ? activeIcon : icon,
-                  key: ValueKey('${index}_$isActive'),
-                  size: 24,
-                  color: isActive ? _primary : _slate500,
-                ),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      isActive ? activeIcon : icon,
+                      key: ValueKey('${index}_$isActive'),
+                      size: 24,
+                      color: isActive ? _primary : _slate500,
+                    ),
+                  ),
+                  if (index == 3)
+                    Consumer<NotificationViewModel>(
+                      builder: (context, notifVm, child) {
+                        if (notifVm.unreadCount <= 0) {
+                          return const SizedBox.shrink();
+                        }
+                        return Positioned(
+                          right: -2,
+                          top: -2,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFEF4444),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 3),
@@ -525,59 +605,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 color: isActive ? _primary : _slate500,
                 fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Activity placeholder ─────────────────────────────────────────
-class _ActivityPlaceholder extends StatelessWidget {
-  const _ActivityPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        title: const Text(
-          'Activity',
-          style: TextStyle(
-            color: _slate900,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
-        centerTitle: false,
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: _slate200),
-        ),
-      ),
-      body: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.favorite_border_rounded, size: 56, color: _slate400),
-            SizedBox(height: 16),
-            Text(
-              'Belum Ada Notifikasi',
-              style: TextStyle(
-                color: _slate900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Suka, komentar, dan aktivitas linimasa akan muncul di sini.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: _slate500, fontSize: 13.5),
             ),
           ],
         ),

@@ -487,6 +487,23 @@ class _ChatListViewState extends State<ChatListView> {
                                         ),
                                       ),
                                     ),
+                                  if (peer.isOnline)
+                                    Positioned(
+                                      right: 1,
+                                      bottom: 1,
+                                      child: Container(
+                                        width: 13,
+                                        height: 13,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF10B981),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 2,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                 ],
                               ),
                               title: Row(
@@ -526,11 +543,26 @@ class _ChatListViewState extends State<ChatListView> {
                                 padding: const EdgeInsets.only(top: 3),
                                 child: Row(
                                   children: [
+                                    if (lastMsg.image != null &&
+                                        lastMsg.image!.isNotEmpty) ...[
+                                      Icon(
+                                        Icons.photo_camera_rounded,
+                                        size: 14,
+                                        color: hasUnread
+                                            ? primaryBlue
+                                            : Colors.grey.shade600,
+                                      ),
+                                      const Gap(4),
+                                    ],
                                     Expanded(
                                       child: Text(
                                         lastMsg.isMine
-                                            ? 'Anda: ${lastMsg.message}'
-                                            : lastMsg.message,
+                                            ? (lastMsg.message.isNotEmpty
+                                                ? 'Anda: ${lastMsg.message}'
+                                                : 'Anda mengirim foto')
+                                            : (lastMsg.message.isNotEmpty
+                                                ? lastMsg.message
+                                                : 'Mengirim foto'),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -574,6 +606,44 @@ class _ChatListViewState extends State<ChatListView> {
                                     builder: (_) => ChatRoomView(peer: peer),
                                   ),
                                 ).then((_) => _loadConversations());
+                              },
+                              onLongPress: () {
+                                final currentUser = context.read<LoginViewModel>().user;
+                                final myId = int.tryParse(currentUser?.id ?? '') ?? 0;
+                                if (myId <= 0) return;
+
+                                showDialog(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Hapus Percakapan?'),
+                                    content: Text(
+                                      'Hapus riwayat obrolan dengan ${peer.name.isNotEmpty ? peer.name : peer.username}?',
+                                      style: const TextStyle(fontSize: 13.5),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: const Text('Batal'),
+                                      ),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.red,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        onPressed: () {
+                                          Navigator.pop(ctx);
+                                          context
+                                              .read<ChatViewModel>()
+                                              .deleteConversation(
+                                                userId: myId,
+                                                peerId: peer.id,
+                                              );
+                                        },
+                                        child: const Text('Hapus'),
+                                      ),
+                                    ],
+                                  ),
+                                );
                               },
                             );
                           },

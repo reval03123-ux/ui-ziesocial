@@ -9,6 +9,7 @@ import 'package:ziesocial/model/profile_model.dart';
 import 'package:ziesocial/model/user_model.dart';
 import 'package:ziesocial/view/chat_room_view.dart';
 import 'package:ziesocial/view/edit_profile_view.dart';
+import 'package:ziesocial/view/follows_list_view.dart';
 import 'package:ziesocial/view/login_view.dart';
 import 'package:ziesocial/view/story_player_view.dart';
 import 'package:ziesocial/viewmodel/login_viewmodel.dart';
@@ -341,6 +342,30 @@ class _ProfileViewState extends State<ProfileView>
     );
   }
 
+  void _openFollowsList(ProfileModel profile, {int initialTab = 0}) {
+    final targetId = int.tryParse(profile.user.id) ?? widget.userId;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FollowsListView(
+          userId: targetId,
+          username: profile.user.username,
+          initialTab: initialTab,
+          followersCount: profile.stats.followersCount,
+          followingCount: profile.stats.followingCount,
+        ),
+      ),
+    ).then((_) {
+      if (!mounted) return;
+      final currentUser = context.read<LoginViewModel>().user;
+      final currentUserId = int.tryParse(currentUser?.id ?? '') ?? 0;
+      context.read<ProfileViewModel>().fetchProfile(
+            targetId,
+            currentUserId: currentUserId > 0 ? currentUserId : null,
+          );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final profileVm = context.watch<ProfileViewModel>();
@@ -434,9 +459,15 @@ class _ProfileViewState extends State<ProfileView>
                                         _buildStatColumn(
                                             'Postingan', profile.stats.postsCount),
                                         _buildStatColumn(
-                                            'Pengikut', profile.stats.followersCount),
+                                          'Pengikut',
+                                          profile.stats.followersCount,
+                                          onTap: () => _openFollowsList(profile, initialTab: 0),
+                                        ),
                                         _buildStatColumn(
-                                            'Mengikuti', profile.stats.followingCount),
+                                          'Mengikuti',
+                                          profile.stats.followingCount,
+                                          onTap: () => _openFollowsList(profile, initialTab: 1),
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -771,34 +802,42 @@ class _ProfileViewState extends State<ProfileView>
     );
   }
 
-  Widget _buildStatColumn(String label, int count) {
+  Widget _buildStatColumn(String label, int count, {VoidCallback? onTap}) {
     return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              _formatCount(count),
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _formatCount(count),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
               ),
-            ),
-          ),
-          const Gap(2),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
+              const Gap(2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: onTap != null ? const Color(0xFF3366A0) : Colors.grey.shade600,
+                    fontWeight: onTap != null ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

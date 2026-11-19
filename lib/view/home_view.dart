@@ -6,10 +6,12 @@ import 'package:ziesocial/model/story_model.dart';
 import 'package:ziesocial/view/chat_list_view.dart';
 import 'package:ziesocial/view/create_story_view.dart';
 import 'package:ziesocial/view/login_view.dart';
+import 'package:ziesocial/view/notification_view.dart';
 import 'package:ziesocial/view/profile_view.dart';
 import 'package:ziesocial/view/story_player_view.dart';
 import 'package:ziesocial/viewmodel/chat_viewmodel.dart';
 import 'package:ziesocial/viewmodel/login_viewmodel.dart';
+import 'package:ziesocial/viewmodel/notification_viewmodel.dart';
 import 'package:ziesocial/viewmodel/post_viewmodel.dart';
 import 'package:ziesocial/viewmodel/story_viewmodel.dart';
 import 'package:ziesocial/widget/post_card.dart';
@@ -189,17 +191,49 @@ class _HomeViewState extends State<HomeView> with TickerProviderStateMixin {
                   // Actions
                   if (user != null) ...[
                     // Notifications
-                    IconButton(
-                      onPressed: _refreshPosts,
-                      icon: const Icon(
-                        Icons.notifications_none_rounded,
-                        color: _slate600,
-                        size: 24,
-                      ),
-                      tooltip: 'Notifikasi',
-                      padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 40, minHeight: 40),
+                    Consumer<NotificationViewModel>(
+                      builder: (ctx, notifVm, _) {
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            IconButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  ctx,
+                                  MaterialPageRoute(
+                                    builder: (_) => const NotificationView(),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.notifications_none_rounded,
+                                color: _slate600,
+                                size: 24,
+                              ),
+                              tooltip: 'Notifikasi',
+                              padding: EdgeInsets.zero,
+                              constraints:
+                                  const BoxConstraints(minWidth: 40, minHeight: 40),
+                            ),
+                            if (notifVm.unreadCount > 0)
+                              Positioned(
+                                right: 6,
+                                top: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: const BoxDecoration(
+                                    color: _red,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 10,
+                                    minHeight: 10,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
                     const Gap(4),
 

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:ziesocial/model/chat_model.dart';
 import 'package:ziesocial/view/profile_view.dart';
@@ -19,27 +21,70 @@ class ChatRoomView extends StatefulWidget {
 class _ChatRoomViewState extends State<ChatRoomView> {
   final TextEditingController _msgController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
+
   bool _canSend = false;
   ChatViewModel? _chatVm;
   int _lastMessageCount = 0;
-  final Set<int> _likedMessageIds = {};
+
+  ChatMessage? _replyingTo;
+  Timer? _typingDebounce;
+  bool _sentTypingActive = false;
 
   static const Color instagramBlue = Color(0xFF3797EF);
   static const Color primaryBlue = Color(0xFF3366A0);
 
+  final List<String> _quickEmojis = ['❤️', '😂', '😮', '😢', '👏', '🔥'];
+
   @override
   void initState() {
     super.initState();
-    _msgController.addListener(() {
-      final can = _msgController.text.trim().isNotEmpty;
-      if (can != _canSend) {
-        setState(() => _canSend = can);
-      }
-    });
+
+    _msgController.addListener(_onTextChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _initChat();
     });
+  }
+
+  void _onTextChanged() {
+    final can = _msgController.text.trim().isNotEmpty;
+    if (can != _canSend) {
+      setState(() => _canSend = can);
+    }
+
+    // Kirim sinyal typing
+    final user = context.read<LoginViewModel>().user;
+    final userId = int.tryParse(user?.id ?? '') ?? 0;
+    if (userId <= 0) return;
+
+    if (can) {
+      if (!_sentTypingActive) {
+        _sentTypingActive = true;
+        _chatVm?.sendTypingStatus(
+          userId: userId,
+          peerId: widget.peer.id,
+          isTyping: true,
+        );
+      }
+      _typingDebounce?.cancel();
+      _typingDebounce = Timer(const Duration(milliseconds: 2500), () {
+        _sentTypingActive = false;
+        _chatVm?.sendTypingStatus(
+          userId: userId,
+          peerId: widget.peer.id,
+          isTyping: false,
+        );
+      });
+    } else if (_sentTypingActive) {
+      _sentTypingActive = false;
+      _typingDebounce?.cancel();
+      _chatVm?.sendTypingStatus(
+        userId: userId,
+        peerId: widget.peer.id,
+        isTyping: false,
+      );
+    }
   }
 
   @override
@@ -66,9 +111,22 @@ class _ChatRoomViewState extends State<ChatRoomView> {
 
   @override
   void dispose() {
+    // Matikan sinyal typing jika masih aktif
+    final user = context.read<LoginViewModel>().user;
+    final userId = int.tryParse(user?.id ?? '') ?? 0;
+    if (userId > 0 && _sentTypingActive) {
+      _chatVm?.sendTypingStatus(
+        userId: userId,
+        peerId: widget.peer.id,
+        isTyping: false,
+      );
+    }
+    _typingDebounce?.cancel();
     _chatVm?.stopListening();
+    _msgController.removeListener(_onTextChanged);
     _msgController.dispose();
     _scrollController.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -77,7 +135,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     final maxScroll = _scrollController.position.maxScrollExtent;
     if (animated) {
       _scrollController.animateTo(
-        maxScroll + 80,
+        maxScroll + 120,
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
       );
@@ -87,19 +145,15 @@ class _ChatRoomViewState extends State<ChatRoomView> {
   }
 
   bool _isMine(ChatMessage msg, int currentUserId) {
-    // Jika senderId sama persis dengan peer.id, pasti BUKAN dari user kita
     if (widget.peer.id > 0 && msg.senderId == widget.peer.id) {
       return false;
     }
-    // Jika senderId sama dengan id user saat ini, pasti dari user kita
     if (currentUserId > 0 && msg.senderId == currentUserId) {
       return true;
     }
-    // Dalam obrolan 1-lawan-1, jika senderId bukan peer.id maka pasti milik kita
     if (widget.peer.id > 0 && msg.senderId > 0 && msg.senderId != widget.peer.id) {
       return true;
     }
-    // Fallback ke flag isMine
     return msg.isMine;
   }
 
@@ -116,11 +170,24 @@ class _ChatRoomViewState extends State<ChatRoomView> {
       _msgController.clear();
     }
 
+    final replyId = _replyingTo?.id;
+    setState(() => _replyingTo = null);
+
+    // Stop status typing
+    _sentTypingActive = false;
+    _typingDebounce?.cancel();
+    _chatVm?.sendTypingStatus(
+      userId: userId,
+      peerId: widget.peer.id,
+      isTyping: false,
+    );
+
     final chatVm = context.read<ChatViewModel>();
     final success = await chatVm.sendMessage(
       senderId: userId,
       receiverId: widget.peer.id,
       text: text,
+      replyToId: replyId,
     );
 
     if (success) {
@@ -140,20 +207,393 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     }
   }
 
+  /// Memilih foto dari galeri atau kamera lalu mengirimnya
+  Future<void> _pickAndSendPhoto(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 85,
+      );
+      if (picked == null) return;
+      if (!mounted) return;
+
+      final user = context.read<LoginViewModel>().user;
+      final userId = int.tryParse(user?.id ?? '') ?? 0;
+      if (userId <= 0) return;
+
+      final bytes = await picked.readAsBytes();
+      final filename = picked.name.isNotEmpty
+          ? picked.name
+          : 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+      final caption = _msgController.text.trim();
+      final replyId = _replyingTo?.id;
+      setState(() => _replyingTo = null);
+
+      if (!mounted) return;
+      final chatVm = context.read<ChatViewModel>();
+      final success = await chatVm.sendPhotoMessage(
+        senderId: userId,
+        receiverId: widget.peer.id,
+        imageBytes: bytes,
+        filename: filename,
+        caption: caption.isNotEmpty ? caption : null,
+        replyToId: replyId,
+      );
+
+      if (success) {
+        _msgController.clear();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToBottom(animated: true);
+        });
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(chatVm.errorMessage ?? 'Gagal mengirim foto'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memilih gambar: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showMediaPickerSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 38,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Text(
+                'Kirim Foto',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF262626),
+                ),
+              ),
+              const Gap(16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEEF2FF),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded, color: primaryBlue),
+                ),
+                title: const Text('Ambil Foto dari Kamera',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndSendPhoto(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEEF2FF),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.photo_library_rounded, color: primaryBlue),
+                ),
+                title: const Text('Pilih dari Galeri',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndSendPhoto(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _sendQuickHeart() {
     _handleSend(overrideText: '❤️');
   }
 
-  void _toggleLike(int messageId) {
-    if (messageId <= 0) return;
+  /// Toggle Reaction pada pesan
+  void _toggleReaction(ChatMessage msg, String emoji) {
+    final user = context.read<LoginViewModel>().user;
+    final userId = int.tryParse(user?.id ?? '') ?? 0;
+    if (userId <= 0) return;
+
     HapticFeedback.lightImpact();
-    setState(() {
-      if (_likedMessageIds.contains(messageId)) {
-        _likedMessageIds.remove(messageId);
-      } else {
-        _likedMessageIds.add(messageId);
-      }
-    });
+    context.read<ChatViewModel>().toggleReaction(
+      messageId: msg.id,
+      userId: userId,
+      emoji: emoji,
+    );
+  }
+
+  /// Tampilkan Dialog / Modal Menu Pesan (Reaction, Reply, Hapus Pesan)
+  void _showMessageOptionsSheet(ChatMessage msg, bool isMine) {
+    HapticFeedback.mediumImpact();
+    final user = context.read<LoginViewModel>().user;
+    final userId = int.tryParse(user?.id ?? '') ?? 0;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle Bar
+            Container(
+              width: 38,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+
+            // Baris Reaction Emoji Cepat (Instagram Style)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: _quickEmojis.map((emoji) {
+                  final isSelected = msg.myReaction(userId) == emoji;
+                  return GestureDetector(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _toggleReaction(msg, emoji);
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? primaryBlue.withValues(alpha: 0.18)
+                            : Colors.transparent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        emoji,
+                        style: TextStyle(fontSize: isSelected ? 26 : 22),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const Gap(14),
+
+            // Opsi: Balas Pesan (Reply)
+            ListTile(
+              leading: const Icon(Icons.reply_rounded, color: primaryBlue),
+              title: const Text('Balas Pesan',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _replyingTo = msg);
+                _focusNode.requestFocus();
+              },
+            ),
+
+            // Opsi: Salin Teks
+            if (msg.message.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.copy_rounded, color: Color(0xFF475569)),
+                title: const Text('Salin Teks',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Clipboard.setData(ClipboardData(text: msg.message));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Teks disalin ke papan klip'),
+                      duration: Duration(seconds: 1),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+              ),
+
+            // Opsi: Hapus Pesan (Tarik Pesan untuk semua)
+            if (isMine)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                title: const Text(
+                  'Tarik / Hapus Pesan',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14.5,
+                    color: Colors.red,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _confirmDeleteMessage(msg.id);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Konfirmasi Hapus Pesan
+  void _confirmDeleteMessage(int messageId) {
+    final user = context.read<LoginViewModel>().user;
+    final userId = int.tryParse(user?.id ?? '') ?? 0;
+    if (userId <= 0) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Pesan?'),
+        content: const Text(
+          'Pesan ini akan ditarik dan dihapus untuk semua orang dalam percakapan.',
+          style: TextStyle(fontSize: 13.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.read<ChatViewModel>().deleteMessage(
+                    messageId: messageId,
+                    userId: userId,
+                  );
+            },
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Konfirmasi Hapus Seluruh Percakapan (Clear Chat)
+  void _confirmDeleteConversation() {
+    final user = context.read<LoginViewModel>().user;
+    final userId = int.tryParse(user?.id ?? '') ?? 0;
+    if (userId <= 0) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Obrolan?'),
+        content: Text(
+          'Seluruh riwayat pesan dengan ${widget.peer.name.isNotEmpty ? widget.peer.name : widget.peer.username} akan dihapus secara permanen.',
+          style: const TextStyle(fontSize: 13.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success = await context.read<ChatViewModel>().deleteConversation(
+                    userId: userId,
+                    peerId: widget.peer.id,
+                  );
+              if (mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Obrolan berhasil dihapus.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openFullScreenImage(BuildContext context, String imageUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Center(
+                  child: Text(
+                    'Gagal memuat gambar',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   String _formatTime(String dateStr) {
@@ -181,18 +621,8 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         return 'Kemarin';
       }
       const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'Mei',
-        'Jun',
-        'Jul',
-        'Agu',
-        'Sep',
-        'Okt',
-        'Nov',
-        'Des'
+        'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+        'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
       ];
       return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
     } catch (_) {
@@ -217,7 +647,6 @@ class _ChatRoomViewState extends State<ChatRoomView> {
       padding: const EdgeInsets.only(top: 24, bottom: 20, left: 16, right: 16),
       child: Column(
         children: [
-          // Avatar besar khas Instagram DM
           Container(
             padding: const EdgeInsets.all(2.5),
             decoration: BoxDecoration(
@@ -279,7 +708,6 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             ),
           ),
           const Gap(14),
-          // Tombol "Lihat Profil" Instagram style
           OutlinedButton(
             onPressed: () {
               Navigator.push(
@@ -313,6 +741,186 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     );
   }
 
+  /// Bubble animasi titik mengetik khas Instagram / iMessage
+  Widget _buildTypingBubble() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          CircleAvatar(
+            radius: 14,
+            backgroundColor: const Color(0xFFE2E8F0),
+            child: widget.peer.avatar.isNotEmpty
+                ? ClipOval(
+                    child: Image.network(
+                      widget.peer.avatarUrl,
+                      width: 28,
+                      height: 28,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Text(
+                        widget.peer.name.isNotEmpty
+                            ? widget.peer.name[0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                          color: primaryBlue,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  )
+                : Text(
+                    widget.peer.name.isNotEmpty
+                        ? widget.peer.name[0].toUpperCase()
+                        : '?',
+                    style: const TextStyle(
+                      color: primaryBlue,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                  ),
+          ),
+          const Gap(8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: const BoxDecoration(
+              color: Color(0xFFEFEFEF),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(18),
+                topRight: Radius.circular(18),
+                bottomRight: Radius.circular(18),
+                bottomLeft: Radius.circular(4),
+              ),
+            ),
+            child: const _AnimatedTypingDots(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Box Quoted Message di dalam bubble chat (ketika membalas pesan)
+  Widget _buildQuotedMessagePreview(ChatReply reply, bool isMine) {
+    final hasImage = reply.imageUrl != null;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: isMine
+            ? Colors.black.withValues(alpha: 0.18)
+            : Colors.black.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border(
+          left: BorderSide(
+            color: isMine ? Colors.white : primaryBlue,
+            width: 3.5,
+          ),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  reply.senderName.isNotEmpty
+                      ? reply.senderName
+                      : reply.senderUsername,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: isMine ? Colors.white : primaryBlue,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const Gap(2),
+                Text(
+                  reply.message.isNotEmpty
+                      ? reply.message
+                      : (hasImage ? '📷 Foto' : ''),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isMine ? Colors.white.withValues(alpha: 0.85) : const Color(0xFF475569),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          if (hasImage) ...[
+            const Gap(6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.network(
+                reply.imageUrl!,
+                width: 30,
+                height: 30,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    const SizedBox.shrink(),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Reaction badges pada tepi bubble chat
+  Widget _buildReactionBadge(ChatMessage msg, bool isMine, int currentUserId) {
+    final counts = msg.reactionCounts;
+    if (counts.isEmpty) return const SizedBox.shrink();
+
+    final myReact = msg.myReaction(currentUserId);
+
+    return Positioned(
+      bottom: -10,
+      right: isMine ? 8 : null,
+      left: isMine ? null : 8,
+      child: GestureDetector(
+        onTap: () => _showMessageOptionsSheet(msg, isMine),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: myReact != null
+                  ? primaryBlue.withValues(alpha: 0.5)
+                  : const Color(0xFFE2E8F0),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: counts.entries.map((e) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                child: Text(
+                  '${e.key}${e.value > 1 ? ' ${e.value}' : ''}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUserId =
@@ -326,6 +934,8 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         if (mounted) _scrollToBottom(animated: true);
       });
     }
+
+    final totalListCount = messages.length + 1 + (chatVm.isPeerTyping ? 1 : 0);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -358,38 +968,56 @@ class _ChatRoomViewState extends State<ChatRoomView> {
           },
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 17,
-                backgroundColor: const Color(0xFFE2E8F0),
-                child: widget.peer.avatar.isNotEmpty
-                    ? ClipOval(
-                        child: Image.network(
-                          widget.peer.avatarUrl,
-                          width: 34,
-                          height: 34,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Text(
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 17,
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    child: widget.peer.avatar.isNotEmpty
+                        ? ClipOval(
+                            child: Image.network(
+                              widget.peer.avatarUrl,
+                              width: 34,
+                              height: 34,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => Text(
+                                widget.peer.name.isNotEmpty
+                                    ? widget.peer.name[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  color: primaryBlue,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          )
+                        : Text(
                             widget.peer.name.isNotEmpty
-                              ? widget.peer.name[0].toUpperCase()
-                              : '?',
+                                ? widget.peer.name[0].toUpperCase()
+                                : '?',
                             style: const TextStyle(
                               color: primaryBlue,
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                             ),
                           ),
-                        ),
-                      )
-                    : Text(
-                        widget.peer.name.isNotEmpty
-                            ? widget.peer.name[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                          color: primaryBlue,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                  ),
+                  if (chatVm.isPeerOnline)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
                         ),
                       ),
+                    ),
+                ],
               ),
               const Gap(10),
               Expanded(
@@ -409,12 +1037,48 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    Text(
-                      '@${widget.peer.username}',
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: Color(0xFF8E8E8E),
-                      ),
+                    Row(
+                      children: [
+                        if (chatVm.isPeerTyping) ...[
+                          const Text(
+                            'sedang mengetik...',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: primaryBlue,
+                              fontStyle: FontStyle.italic,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ] else if (chatVm.isPeerOnline) ...[
+                          Container(
+                            width: 6,
+                            height: 6,
+                            margin: const EdgeInsets.only(right: 4),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF10B981),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const Text(
+                            'Aktif sekarang',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF10B981),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ] else ...[
+                          Text(
+                            chatVm.peerLastActive.isNotEmpty
+                                ? chatVm.peerLastActive
+                                : '@${widget.peer.username}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF8E8E8E),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
@@ -423,53 +1087,49 @@ class _ChatRoomViewState extends State<ChatRoomView> {
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.phone_outlined,
-                color: Color(0xFF262626), size: 22),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Panggilan suara akan segera hadir!'),
-                  duration: Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+          // Menu Opsi Obrolan (Hapus Obrolan, Lihat Profil)
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF262626)),
+            onSelected: (val) {
+              if (val == 'profile') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProfileView(userId: widget.peer.id),
+                  ),
+                );
+              } else if (val == 'delete_chat') {
+                _confirmDeleteConversation();
+              }
             },
-            tooltip: 'Telepon',
-          ),
-          IconButton(
-            icon: const Icon(Icons.videocam_outlined,
-                color: Color(0xFF262626), size: 24),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Panggilan video akan segera hadir!'),
-                  duration: Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline_rounded, size: 20, color: Color(0xFF475569)),
+                    Gap(10),
+                    Text('Lihat Profil'),
+                  ],
                 ),
-              );
-            },
-            tooltip: 'Panggilan Video',
-          ),
-          IconButton(
-            icon: const Icon(Icons.info_outline_rounded,
-                color: Color(0xFF262626), size: 22),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ProfileView(userId: widget.peer.id),
+              ),
+              const PopupMenuItem(
+                value: 'delete_chat',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_sweep_rounded, size: 20, color: Colors.red),
+                    Gap(10),
+                    Text('Hapus Obrolan', style: TextStyle(color: Colors.red)),
+                  ],
                 ),
-              );
-            },
-            tooltip: 'Detail Profil',
+              ),
+            ],
           ),
           const Gap(4),
         ],
       ),
       body: Column(
         children: [
-          // Daftar Pesan (Instagram DM style)
           Expanded(
             child: chatVm.isLoadingMessages
                 ? const Center(
@@ -480,20 +1140,22 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                   )
                 : ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.only(bottom: 12),
-                    itemCount: messages.length + 1,
+                    padding: const EdgeInsets.only(bottom: 14),
+                    itemCount: totalListCount,
                     itemBuilder: (context, index) {
-                      // Index 0 adalah Thread Header khas Instagram
                       if (index == 0) {
                         return _buildThreadHeader();
+                      }
+
+                      // Menampilkan bubble mengetik di item paling bawah jika aktif
+                      if (chatVm.isPeerTyping && index == totalListCount - 1) {
+                        return _buildTypingBubble();
                       }
 
                       final msgIndex = index - 1;
                       final msg = messages[msgIndex];
                       final isMine = _isMine(msg, currentUserId);
-                      final isLiked = _likedMessageIds.contains(msg.id);
 
-                      // Cek pemisah hari jika hari berbeda dengan pesan sebelumnya
                       bool showDateHeader = false;
                       if (msgIndex == 0) {
                         showDateHeader = true;
@@ -503,8 +1165,6 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                             prevMsg.createDate, msg.createDate);
                       }
 
-                      // Menentukan apakah avatar peer perlu ditampilkan di bubble kiri
-                      // Hanya tampilkan avatar di pesan terakhir dari grup pesan penerima
                       final bool isLastInReceivedGroup = !isMine &&
                           ((msgIndex == messages.length - 1) ||
                               _isMine(messages[msgIndex + 1], currentUserId) ||
@@ -529,196 +1189,345 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                                 ),
                               ),
                             ),
+
+                          // Swipe to reply / Double tap / Long press
                           GestureDetector(
-                            onDoubleTap: () => _toggleLike(msg.id),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 2),
-                              child: Row(
-                                mainAxisAlignment: isMine
-                                    ? MainAxisAlignment.end
-                                    : MainAxisAlignment.start,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  // Avatar peer di sisi kiri jika pesan dari lawan bicara
-                                  if (!isMine) ...[
-                                    if (isLastInReceivedGroup)
-                                      CircleAvatar(
-                                        radius: 14,
-                                        backgroundColor:
-                                            const Color(0xFFE2E8F0),
-                                        child: widget.peer.avatar.isNotEmpty
-                                            ? ClipOval(
-                                                child: Image.network(
-                                                  widget.peer.avatarUrl,
-                                                  width: 28,
-                                                  height: 28,
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (context, error,
-                                                          stackTrace) =>
+                            onDoubleTap: () => _toggleReaction(msg, '❤️'),
+                            onLongPress: () =>
+                                _showMessageOptionsSheet(msg, isMine),
+                            child: Dismissible(
+                              key: ValueKey('msg_${msg.id}'),
+                              direction: DismissDirection.startToEnd,
+                              confirmDismiss: (dir) async {
+                                HapticFeedback.lightImpact();
+                                setState(() => _replyingTo = msg);
+                                _focusNode.requestFocus();
+                                return false; // Jangan hapus dari list saat swipe reply
+                              },
+                              background: Container(
+                                alignment: Alignment.centerLeft,
+                                padding: const EdgeInsets.only(left: 20),
+                                child: const Icon(
+                                  Icons.reply_rounded,
+                                  color: primaryBlue,
+                                  size: 24,
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 3),
+                                child: Row(
+                                  mainAxisAlignment: isMine
+                                      ? MainAxisAlignment.end
+                                      : MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (!isMine) ...[
+                                      if (isLastInReceivedGroup)
+                                        CircleAvatar(
+                                          radius: 14,
+                                          backgroundColor:
+                                              const Color(0xFFE2E8F0),
+                                          child: widget.peer.avatar.isNotEmpty
+                                              ? ClipOval(
+                                                  child: Image.network(
+                                                    widget.peer.avatarUrl,
+                                                    width: 28,
+                                                    height: 28,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (context, error,
+                                                            stackTrace) =>
+                                                        Text(
+                                                      widget.peer.name.isNotEmpty
+                                                          ? widget.peer.name[0]
+                                                              .toUpperCase()
+                                                          : '?',
+                                                      style: const TextStyle(
+                                                        color: primaryBlue,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                )
+                                              : Text(
+                                                  widget.peer.name.isNotEmpty
+                                                      ? widget.peer.name[0]
+                                                          .toUpperCase()
+                                                      : '?',
+                                                  style: const TextStyle(
+                                                    color: primaryBlue,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                        )
+                                      else
+                                        const SizedBox(width: 28),
+                                      const Gap(8),
+                                    ],
+
+                                    // Bubble Pesan
+                                    Flexible(
+                                      child: Stack(
+                                        clipBehavior: Clip.none,
+                                        children: [
+                                          Container(
+                                            constraints: BoxConstraints(
+                                              maxWidth: MediaQuery.of(context)
+                                                      .size
+                                                      .width *
+                                                  0.75,
+                                            ),
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: msg.imageUrl != null ? 6 : 14,
+                                              vertical: msg.imageUrl != null ? 6 : 10,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              gradient: isMine
+                                                  ? const LinearGradient(
+                                                      colors: [
+                                                        Color(0xFF7825EB),
+                                                        Color(0xFF0075FF),
+                                                      ],
+                                                      begin: Alignment.topLeft,
+                                                      end: Alignment.bottomRight,
+                                                    )
+                                                  : null,
+                                              color: isMine
+                                                  ? null
+                                                  : const Color(0xFFEFEFEF),
+                                              borderRadius: BorderRadius.only(
+                                                topLeft:
+                                                    const Radius.circular(20),
+                                                topRight:
+                                                    const Radius.circular(20),
+                                                bottomLeft: Radius.circular(
+                                                    isMine ? 20 : 4),
+                                                bottomRight: Radius.circular(
+                                                    isMine ? 4 : 20),
+                                              ),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: isMine
+                                                  ? CrossAxisAlignment.end
+                                                  : CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                // Tampilan Pesan yang di-Reply
+                                                if (msg.replyTo != null)
+                                                  _buildQuotedMessagePreview(
+                                                      msg.replyTo!, isMine),
+
+                                                // Tampilan Foto dalam Chat
+                                                if (msg.imageUrl != null) ...[
+                                                  ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(15),
+                                                    child: GestureDetector(
+                                                      onTap: () =>
+                                                          _openFullScreenImage(
+                                                              context,
+                                                              msg.imageUrl!),
+                                                      child: Stack(
+                                                        children: [
+                                                          Image.network(
+                                                            msg.imageUrl!,
+                                                            width: 240,
+                                                            height: 240,
+                                                            fit: BoxFit.cover,
+                                                            loadingBuilder: (context,
+                                                                child, progress) {
+                                                              if (progress == null) {
+                                                                return child;
+                                                              }
+                                                              return Container(
+                                                                width: 240,
+                                                                height: 240,
+                                                                color:
+                                                                    Colors.black12,
+                                                                child: const Center(
+                                                                  child:
+                                                                      CircularProgressIndicator(
+                                                                    strokeWidth: 2,
+                                                                    color:
+                                                                        Colors.white,
+                                                                  ),
+                                                                ),
+                                                              );
+                                                            },
+                                                            errorBuilder: (context,
+                                                                    error,
+                                                                    stackTrace) =>
+                                                                Container(
+                                                              width: 240,
+                                                              height: 140,
+                                                              color: Colors.black12,
+                                                              child: const Center(
+                                                                child: Icon(
+                                                                  Icons
+                                                                      .broken_image_rounded,
+                                                                  color: Colors.white,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  if (msg.message.isNotEmpty)
+                                                    const Gap(6),
+                                                ],
+
+                                                // Teks Pesan
+                                                if (msg.message.isNotEmpty)
+                                                  Padding(
+                                                    padding: EdgeInsets.symmetric(
+                                                      horizontal:
+                                                          msg.imageUrl != null ? 8 : 0,
+                                                      vertical:
+                                                          msg.imageUrl != null ? 4 : 0,
+                                                    ),
+                                                    child: Text(
+                                                      msg.message,
+                                                      style: TextStyle(
+                                                        color: isMine
+                                                            ? Colors.white
+                                                            : const Color(
+                                                                0xFF262626),
+                                                        fontSize: 15,
+                                                        height: 1.35,
+                                                      ),
+                                                    ),
+                                                  ),
+
+                                                // Bar Waktu & Status Centang 2 (Read Receipts)
+                                                Padding(
+                                                  padding: EdgeInsets.only(
+                                                    top: 2,
+                                                    right:
+                                                        msg.imageUrl != null ? 6 : 0,
+                                                    left:
+                                                        msg.imageUrl != null ? 6 : 0,
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
                                                       Text(
-                                                    widget.peer.name.isNotEmpty
-                                                        ? widget.peer.name[0]
-                                                            .toUpperCase()
-                                                        : '?',
-                                                    style: const TextStyle(
-                                                      color: primaryBlue,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      fontSize: 11,
-                                                    ),
-                                                  ),
-                                                ),
-                                              )
-                                            : Text(
-                                                widget.peer.name.isNotEmpty
-                                                    ? widget.peer.name[0]
-                                                        .toUpperCase()
-                                                    : '?',
-                                                style: const TextStyle(
-                                                  color: primaryBlue,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 11,
-                                                ),
-                                              ),
-                                      )
-                                    else
-                                      const SizedBox(width: 28),
-                                    const Gap(8),
-                                  ],
-
-                                  // Bubble Pesan
-                                  Flexible(
-                                    child: Stack(
-                                      clipBehavior: Clip.none,
-                                      children: [
-                                        Container(
-                                          constraints: BoxConstraints(
-                                            maxWidth: MediaQuery.of(context)
-                                                    .size
-                                                    .width *
-                                                0.72,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 15, vertical: 10),
-                                          decoration: BoxDecoration(
-                                            // Instagram gradient jika pesan kita (Kanan)
-                                            gradient: isMine
-                                                ? const LinearGradient(
-                                                    colors: [
-                                                      Color(0xFF7825EB),
-                                                      Color(0xFF0075FF),
+                                                        _formatTime(msg.createDate),
+                                                        style: TextStyle(
+                                                          color: isMine
+                                                              ? Colors.white
+                                                                  .withValues(
+                                                                      alpha: 0.75)
+                                                              : const Color(
+                                                                  0xFF8E8E8E),
+                                                          fontSize: 10,
+                                                        ),
+                                                      ),
+                                                      if (isMine) ...[
+                                                        const SizedBox(width: 4),
+                                                        Icon(
+                                                          Icons.done_all_rounded,
+                                                          size: 15,
+                                                          color: msg.isRead
+                                                              ? const Color(0xFF38E1FF)
+                                                              : Colors.white.withValues(alpha: 0.65),
+                                                        ),
+                                                      ],
                                                     ],
-                                                    begin: Alignment.topLeft,
-                                                    end: Alignment.bottomRight,
-                                                  )
-                                                : null,
-                                            // Instagram light gray jika pesan lawan bicara (Kiri)
-                                            color: isMine
-                                                ? null
-                                                : const Color(0xFFEFEFEF),
-                                            borderRadius: BorderRadius.only(
-                                              topLeft:
-                                                  const Radius.circular(20),
-                                              topRight:
-                                                  const Radius.circular(20),
-                                              bottomLeft: Radius.circular(
-                                                  isMine ? 20 : 4),
-                                              bottomRight: Radius.circular(
-                                                  isMine ? 4 : 20),
-                                            ),
-                                          ),
-                                          child: Wrap(
-                                            alignment: WrapAlignment.end,
-                                            crossAxisAlignment:
-                                                WrapCrossAlignment.end,
-                                            spacing: 8,
-                                            runSpacing: 4,
-                                            children: [
-                                              Text(
-                                                msg.message,
-                                                style: TextStyle(
-                                                  color: isMine
-                                                      ? Colors.white
-                                                      : const Color(0xFF262626),
-                                                  fontSize: 15,
-                                                  height: 1.35,
+                                                  ),
                                                 ),
-                                              ),
-                                              Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    _formatTime(msg.createDate),
-                                                    style: TextStyle(
-                                                      color: isMine
-                                                          ? Colors.white
-                                                              .withValues(
-                                                                  alpha: 0.7)
-                                                          : const Color(
-                                                              0xFF8E8E8E),
-                                                      fontSize: 10,
-                                                    ),
-                                                  ),
-                                                  if (isMine) ...[
-                                                    const SizedBox(width: 3),
-                                                    Icon(
-                                                      msg.isRead
-                                                          ? Icons
-                                                              .done_all_rounded
-                                                          : Icons.done_rounded,
-                                                      size: 13,
-                                                      color: Colors.white
-                                                          .withValues(
-                                                              alpha: 0.8),
-                                                    ),
-                                                  ],
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-
-                                        // Indikator Love khas Instagram jika di-double-tap
-                                        if (isLiked)
-                                          Positioned(
-                                            bottom: -9,
-                                            right: isMine ? 8 : null,
-                                            left: isMine ? null : 8,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2.5),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                shape: BoxShape.circle,
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black
-                                                        .withValues(alpha: 0.12),
-                                                    blurRadius: 4,
-                                                    offset: const Offset(0, 1),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: const Icon(
-                                                Icons.favorite,
-                                                size: 15,
-                                                color: Colors.redAccent,
-                                              ),
+                                              ],
                                             ),
                                           ),
-                                      ],
+
+                                          // Emoji Reaction Badges
+                                          _buildReactionBadge(msg, isMine, currentUserId),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                          if (isLiked) const Gap(6),
+                          if (msg.reactions.isNotEmpty) const Gap(8),
                         ],
                       );
                     },
                   ),
           ),
+
+          // Container Preview Membalas Pesan (Reply Banner)
+          if (_replyingTo != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                border: Border(
+                  top: BorderSide(color: Color(0xFFE2E8F0)),
+                  left: BorderSide(color: primaryBlue, width: 4),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Membalas ke ${_isMine(_replyingTo!, currentUserId) ? 'Anda' : widget.peer.name}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: primaryBlue,
+                          ),
+                        ),
+                        const Gap(2),
+                        Text(
+                          _replyingTo!.message.isNotEmpty
+                              ? _replyingTo!.message
+                              : (_replyingTo!.imageUrl != null
+                                  ? '📷 Foto'
+                                  : ''),
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_replyingTo!.imageUrl != null) ...[
+                    const Gap(8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.network(
+                        _replyingTo!.imageUrl!,
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const SizedBox.shrink(),
+                      ),
+                    ),
+                  ],
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded,
+                        size: 18, color: Color(0xFF64748B)),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    onPressed: () => setState(() => _replyingTo = null),
+                  ),
+                ],
+              ),
+            ),
 
           // Bottom Bar Input Khas Instagram DM
           Container(
@@ -734,7 +1543,6 @@ class _ChatRoomViewState extends State<ChatRoomView> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  // Input Pill khas Instagram
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
@@ -745,21 +1553,24 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          // Tombol Kamera Biru khas Instagram
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 5, horizontal: 4),
-                            child: Container(
-                              width: 32,
-                              height: 32,
-                              decoration: const BoxDecoration(
-                                color: instagramBlue,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.camera_alt_rounded,
-                                color: Colors.white,
-                                size: 18,
+                          // Tombol Kamera Cepat
+                          GestureDetector(
+                            onTap: () => _pickAndSendPhoto(ImageSource.camera),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 5, horizontal: 4),
+                              child: Container(
+                                width: 32,
+                                height: 32,
+                                decoration: const BoxDecoration(
+                                  color: instagramBlue,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.camera_alt_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
                               ),
                             ),
                           ),
@@ -769,6 +1580,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                           Expanded(
                             child: TextField(
                               controller: _msgController,
+                              focusNode: _focusNode,
                               maxLines: 5,
                               minLines: 1,
                               textCapitalization: TextCapitalization.sentences,
@@ -776,54 +1588,35 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                                 fontSize: 14.5,
                                 color: Color(0xFF262626),
                               ),
-                              decoration: const InputDecoration(
-                                hintText: 'Kirim pesan...',
-                                hintStyle: TextStyle(
+                              decoration: InputDecoration(
+                                hintText: _replyingTo != null
+                                    ? 'Tulis balasan...'
+                                    : 'Kirim pesan...',
+                                hintStyle: const TextStyle(
                                   fontSize: 14,
                                   color: Color(0xFF8E8E8E),
                                 ),
                                 border: InputBorder.none,
                                 isDense: true,
                                 contentPadding:
-                                    EdgeInsets.symmetric(vertical: 10),
+                                    const EdgeInsets.symmetric(vertical: 10),
                               ),
                             ),
                           ),
 
-                          // Tombol Aksi saat teks kosong (Mic, Galeri, Love cepat)
+                          // Tombol Galeri Foto
+                          IconButton(
+                            icon: const Icon(Icons.image_outlined,
+                                size: 22, color: Color(0xFF262626)),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                                minWidth: 32, minHeight: 38),
+                            onPressed: _showMediaPickerSheet,
+                            tooltip: 'Kirim Foto dari Galeri',
+                          ),
+
+                          // Tombol Aksi saat teks kosong (Love cepat)
                           if (!_canSend) ...[
-                            IconButton(
-                              icon: const Icon(Icons.mic_none_rounded,
-                                  size: 22, color: Color(0xFF262626)),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                  minWidth: 32, minHeight: 38),
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Pesan suara segera hadir!'),
-                                    duration: Duration(seconds: 1),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.image_outlined,
-                                  size: 22, color: Color(0xFF262626)),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                  minWidth: 32, minHeight: 38),
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Kirim foto segera hadir!'),
-                                    duration: Duration(seconds: 1),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                              },
-                            ),
                             IconButton(
                               icon: const Icon(Icons.favorite_border_rounded,
                                   size: 22, color: Color(0xFF262626)),
@@ -835,7 +1628,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                             ),
                           ],
 
-                          // Tombol "Kirim" Teks Biru khas Instagram saat teks ada
+                          // Tombol "Kirim"
                           if (_canSend)
                             Padding(
                               padding: const EdgeInsets.only(
@@ -870,6 +1663,67 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Widget 3 titik bergelombang halus untuk indikator bubble sedang mengetik
+class _AnimatedTypingDots extends StatefulWidget {
+  const _AnimatedTypingDots();
+
+  @override
+  State<_AnimatedTypingDots> createState() => _AnimatedTypingDotsState();
+}
+
+class _AnimatedTypingDotsState extends State<_AnimatedTypingDots>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 32,
+      height: 14,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: List.generate(3, (i) {
+          return AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              final val = (_controller.value - (i * 0.2)) % 1.0;
+              final offset = (val < 0.5)
+                  ? -3.5 * (1 - (val * 2 - 0.5).abs() * 2)
+                  : 0.0;
+              return Transform.translate(
+                offset: Offset(0, offset),
+                child: Container(
+                  width: 5.5,
+                  height: 5.5,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF8E8E8E),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              );
+            },
+          );
+        }),
       ),
     );
   }

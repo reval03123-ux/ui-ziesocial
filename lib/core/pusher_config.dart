@@ -22,4 +22,10 @@ class PusherConfig {
   }
 
   static const String eventNewMessage = 'new-message';
+  static const String eventMessagesRead = 'messages-read';
+  static const String eventNewNotification = 'new-notification';
+  static const String eventTyping = 'typing';
+  static const String eventMessageDeleted = 'message-deleted';
+  static const String eventConversationDeleted = 'conversation-deleted';
+  static const String eventMessageReaction = 'message-reaction';
 }
